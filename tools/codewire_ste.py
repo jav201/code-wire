@@ -1,7 +1,10 @@
 """Code-Wire language check (rule C17): is the English prose of a Markdown file written to the
 measurable rules of ASD-STE100, as `Language-STE.md` sets them for this project?
 
-Checked, per sentence of prose (paragraphs and list items; not headings, tables, code):
+Checked, per sentence of prose (paragraphs and list items; not headings, tables, code). In the graph
+sections (`## Nodes`, `## Entities`, `## Edges`, `## Findings`) only the prose fields are prose: each
+`func:`, `desc:`, `open:`, `what:`, `consequence:` and `decision:` value is one paragraph, and the
+other lines are structure (Language-STE.md §2):
     S1 length       a sentence in a numbered step has 20 words or fewer; any other sentence, 25 or fewer
     S2 one step     a numbered step gives one instruction: no `;`, `, then`, `and then`
     S3 paragraph    a paragraph has 6 sentences or fewer
@@ -26,6 +29,8 @@ CHAIN = re.compile(r";|,\s*then\b|\band then\b", re.I)
 PASSIVE = re.compile(r"\b(is|are|was|were|be|been|being)\s+(?:\w+ly\s+)?(\w+ed|known|done|made|given|written|read|"
                      r"found|shown|run|set|kept|left|built|sent|taken|seen|put|split|cut)\b", re.I)
 WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9'’_/.-]*")
+GRAPH_SECTIONS = ("## nodes", "## entities", "## edges", "## findings")
+PROSE_FIELD = re.compile(r"^(func|desc|open|what|consequence|decision):\s*(.*)$")
 
 
 def load_glossary(path):
@@ -45,7 +50,7 @@ def load_glossary(path):
 
 def blocks(text):
     """Yield (line number, is numbered step, text) for each prose paragraph or list item."""
-    fenced, buf, start, step = False, [], 0, False
+    fenced, buf, start, step, graph = False, [], 0, False, False
 
     def flush():
         if buf:
@@ -57,6 +62,14 @@ def blocks(text):
             fenced = not fenced
             continue
         bare = line.strip()
+        if not fenced and bare.startswith("## "):
+            graph = bare.lower() in GRAPH_SECTIONS
+        if graph and not fenced and not bare.startswith("#"):
+            yield from flush(); buf = []
+            field = PROSE_FIELD.match(bare)
+            if field and field.group(2):
+                yield i, False, field.group(2)
+            continue
         if fenced or not bare or bare.startswith(("#", "|", ">", "<!--")) or bare == "---":
             yield from flush(); buf = []
             continue

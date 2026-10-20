@@ -88,3 +88,35 @@ def test_address_value_pair_must_match_as_a_pair():
     call = {"out": {"mem_map": {"0x80020008": 0xAA, "0x80020009": 0xAB}}}
     assert ce.check_line("(case_03) mem_map[0x80020008] = 0xAA", [call]) == []
     assert ce.check_line("(case_03) mem_map[0x80020008] = 0xAB", [call]) == ["0x80020008: 0xab"]
+
+
+def test_a_line_with_no_anchor_is_not_reported_as_ok():
+    # M-6 (first-use): 5 of 31 "ok" lines had nothing to compare. An ok must mean "checked and true".
+    rows = ce.check([node("load", "(AC-1) the node reads the file and gives its records")], {"AC-1": {"load": [CALL]}})
+    assert rows[0][2] == "no_anchor"
+
+
+def test_short_quoted_text_must_equal_a_whole_recorded_string():
+    # M-6: `"ok"` was dropped (shorter than 3 characters), so a wrong status passed. A part of a
+    # longer string is not enough: "ok" is inside "token", and that is not the same value.
+    assert ce.check_line('(AC-1) → status "ok"', [{"out": {"status": "ok"}}]) == []
+    assert ce.check_line('(AC-1) → status "ok"', [{"out": {"status": "token"}}]) == ["ok"]
+
+
+def test_recorder_skips_a_node_with_no_code_and_lists_it(tmp_path, monkeypatch):
+    # M-7 (first-use): in forward, a NEW node has no def yet. The recorder stopped the whole test
+    # run, so the agent had to write recording-only copies of each graph.
+    (tmp_path / "shipped.py").write_text("def old(x):\n    return x\n", encoding="utf-8")
+    graph = tmp_path / "g.md"
+    graph.write_text("## Nodes\n\nold\nin: int x\nout: int x\nmodule: shipped.py\n\n"
+                     "new_step\nin: int x\nout: int y\nmodule: shipped.py\n\n"
+                     "new_file_step\nin: int x\nout: int y\nmodule: not_yet.py\n", encoding="utf-8")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    monkeypatch.setenv("CW_GRAPHS", str(graph))
+    rec.TRACE.clear()
+    rec.pytest_configure(None)
+    import shipped
+    assert shipped.old(3) == 3 and rec.TRACE["old"][0]["out"] == 3
+    assert rec.TRACE["_skipped"] == ["new_step", "new_file_step"]
+    rows = ce.check([node("new_step", "(AC-1) x 1 → y 0x2")], {"AC-1": rec.TRACE})
+    assert rows[0][2] == "no_def"

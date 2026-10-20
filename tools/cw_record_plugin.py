@@ -6,6 +6,7 @@ Generic: the nodes come from the graph files (name + `modulo:`), not from a hand
     CW_OUT     trace JSON to write (default cw-trace.json)
     CW_MAX     calls kept per node (default 3)
 The wrapped function returns exactly what the original returns; nothing in the repo is edited.
+A node with no module or no def yet (a NEW node in forward) is skipped and listed in the trace key `_skipped`.
 """
 import dataclasses
 import functools
@@ -131,14 +132,17 @@ def resolve(node):
 def pytest_configure(config):
     texts = [Path(p).read_text(encoding="utf-8") for p in os.environ.get("CW_GRAPHS", "").split(os.pathsep) if p]
     nodes, _, _, _ = cw.load_graphs(texts)
-    originals = {}
+    originals, skipped = {}, []
     for node in nodes:
-        if not node["modulo_file"]:
+        try:
+            owner, attr, fn = resolve(node)
+        except (TypeError, ImportError, AttributeError):  # no `module:`, no module file, or no def yet
+            skipped.append(node["name"])
             continue
-        owner, attr, fn = resolve(node)
         w = wrap(node, fn)
         setattr(owner, attr, w)
         originals[id(fn)] = (fn, w)
+    TRACE["_skipped"] = skipped
     # `from x import f` copies taken before the patch still point at the original: rebind them
     for m in list(sys.modules.values()):
         for attr, v in list(getattr(m, "__dict__", {}).items()):

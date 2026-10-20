@@ -125,8 +125,24 @@ def graph_type(t):
     if "->" in t:
         arg, ret = (graph_type(x) for x in t.split("->", 1))
         return f"Callable[[{arg}], {ret}]"
-    if t.endswith("?"):
-        return f"Optional[{t[:-1].strip()}]"
+    return nested_optional(t)
+
+
+def nested_optional(t):
+    """`X?` -> `Optional[X]` at any depth: `Sequence[int?]?` -> `Optional[Sequence[Optional[int]]]`."""
+    while "?" in t:
+        q = t.index("?")
+        start = q
+        if start and t[start - 1] == "]":
+            depth = 0
+            while True:
+                start -= 1
+                depth += {"]": 1, "[": -1}.get(t[start], 0)
+                if depth == 0:
+                    break
+        while start and (t[start - 1].isalnum() or t[start - 1] in "_."):
+            start -= 1
+        t = f"{t[:start]}Optional[{t[start:q].strip()}]{t[q + 1:]}"
     return t
 
 
@@ -278,11 +294,45 @@ def own_calls(fn):
         stack.extend(ast.iter_child_nodes(node))
 
 
-def resolve(call, info, top_funcs, classes, marked_methods):
+def own_refs(fn, calls):
+    """Names in a def's body that are read as a value, not called: `pool.map(f, xs)`, `g = f`.
+    A parameter or a local assignment with the same name hides the function, so it is not a ref."""
+    called = {id(c.func) for c in calls}
+    local = {a.arg for a in fn.args.args + fn.args.kwonlyargs + fn.args.posonlyargs}
+    names, stack = [], list(fn.body)
+    while stack:
+        node = stack.pop()
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+            continue
+        if isinstance(node, ast.Name):
+            if isinstance(node.ctx, ast.Store):
+                local.add(node.id)
+            elif id(node) not in called:
+                names.append(node)
+        stack.extend(ast.iter_child_nodes(node))
+    return [n for n in names if n.id not in local]
+
+
+def local_def(name, info, defs):
+    """The nested def `name` that the def of `info` sees: its own, then the ones of each enclosing def."""
+    qual = info["qual"]
+    while True:
+        did = f"{info['file']}::{qual}.<locals>.{name}"
+        if did in defs:
+            return did
+        if ".<locals>." not in qual:
+            return None
+        qual = qual.rsplit(".<locals>.", 1)[0]
+
+
+def resolve(call, info, top_funcs, classes, marked_methods, defs=None):
     """Name-based resolution. `f()` -> top-level f (same file first); `C()` -> C.__init__;
     `self.m()` -> m of the enclosing class; `x.m()` -> top-level m or a marked method m."""
     f = call.func
     if isinstance(f, ast.Name):
+        nested = local_def(f.id, info, defs or {})
+        if nested:
+            return [nested]
         if f.id in classes:
             return [classes[f.id]["__init__"]] if "__init__" in classes[f.id] else []
         cands = top_funcs.get(f.id, [])
@@ -312,11 +362,15 @@ def lift_calls(parsed, marks):
 
     calls_of, ambiguous = {}, 0
     for did, info in defs.items():
-        out = []
-        for call in own_calls(info["fn"]):
-            targets = list(dict.fromkeys(resolve(call, info, top_funcs, classes, marked_methods)))
+        out, calls = [], list(own_calls(info["fn"]))
+        for call in calls:
+            targets = list(dict.fromkeys(resolve(call, info, top_funcs, classes, marked_methods, defs)))
             ambiguous += len(targets) > 1
             out += [(t, f"{info['file']}:{call.lineno}") for t in targets]
+        for ref in own_refs(info["fn"], calls):  # a function as a value counts as a call, marked `(ref)`
+            nested = local_def(ref.id, info, defs)
+            targets = [nested] if nested else top_funcs.get(ref.id, [])
+            out += [(t, f"{info['file']}:{ref.lineno} (ref)") for t in targets]
         calls_of[did] = out
 
     edges, reached = {}, set()

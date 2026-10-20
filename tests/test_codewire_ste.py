@@ -66,3 +66,51 @@ def test_the_rules_document_reads_its_own_glossary_and_passes_its_own_check():
     assert "thread" not in glossary  # a row with no "Not" only defines the word
     errors = [f for f in ste.check_text(RULES.read_text(encoding="utf-8"), glossary) if f[3] == "error"]
     assert errors == []
+
+
+GRAPH = """# A graph
+
+## Nodes
+
+Read file
+req: R-2
+in: str filePath; """ + "; ".join(f"str input{i}" for i in range(30)) + """
+out: iter[str] fileLine
+func: opens the file and gives it line by line
+module: logtool/reader.py
+examples: (synthetic) """ + " ".join(["word"] * 30) + """
+open: does the node also read a gzip file
+
+## Edges
+
+Validate filePath.validFilePath ──▶ Read file.filePath
+
+## Findings
+
+H-1
+anchor: Read file
+what: """ + " ".join(["word"] * 26) + """.
+evidence: `reader.py:12`; """ + " ".join(["word"] * 30) + """
+
+## Notes
+
+""" + " ".join(["word"] * 26) + "."
+
+
+def test_a_graph_section_checks_only_its_prose_fields():
+    # Language-STE.md §2: the structured lines of a graph are not prose. Without this scope, the
+    # model graph itself fails C17 and every real graph gives tens of false errors (M-2, first-use: 95).
+    found = ste.check_text(GRAPH, GLOSSARY)
+    lines = GRAPH.splitlines()
+    flagged = sorted((lines[f[1] - 1].split(":")[0] if ":" in lines[f[1] - 1] else "prose", f[2]) for f in found)
+    assert flagged == [("prose", "S1"), ("what", "S1")]  # the long `in:`, `examples:` and `evidence:` lines pass
+
+
+def test_a_prose_field_in_a_graph_is_still_checked_for_the_glossary():
+    assert rules("## Nodes\n\nRead file\nfunc: does not touch the file\nin: str touch") == ["S4"]
+
+
+def test_the_model_graph_of_the_repository_passes_c17():
+    graph = Path(__file__).resolve().parents[1] / "examples" / "logtool-graph.md"
+    errors = [f for f in ste.check_text(graph.read_text(encoding="utf-8"), ste.load_glossary(RULES)) if f[3] == "error"]
+    assert errors == []

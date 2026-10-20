@@ -281,3 +281,53 @@ def test_out_none_is_a_type_not_a_name():
     # §3.1: `out: None` = the node only modifies; it must match a `-> None` annotation, not read as untyped.
     assert cw.parse_out("None") == {"type": "None", "names": [], "raw": "None"}
     assert cw.type_match(cw.parse_out("None")["type"], "None") == "exact"
+
+
+def test_optional_marker_converts_at_any_depth():
+    # M-5 (first-use): `Sequence[int?]?` stayed half-converted and gave 2 false type mismatches.
+    assert cw.graph_type("Sequence[int?]?") == "Optional[Sequence[Optional[int]]]"
+    assert cw.type_match(cw.graph_type("Sequence[int?]?"), "Optional[Sequence[Optional[int]]]") == "exact"
+    assert cw.graph_type("dict[str, list[int?]]") == "dict[str, list[Optional[int]]]"
+    assert cw.graph_type("str?") == "Optional[str]"
+
+
+CLOSURE = textwrap.dedent('''
+    # node: run_flow  []
+    def run_flow(spec):
+        return spec
+
+    def _chain_inputs(spec):
+        return spec
+
+    # node: inputs_of  []
+    def inputs_of(spec):
+        return spec
+
+    # node: run_set  []
+    def run_set(chains, pool, run_one=None):
+        execute = run_one if run_one is not None else run_flow
+
+        def _run_one(spec):
+            _chain_inputs(spec)
+            inputs_of(spec)
+            return execute(spec)
+
+        if pool:
+            return list(pool.map(_run_one, chains))
+        return [_run_one(c) for c in chains]
+
+    # node: unrelated  []
+    def unrelated(run_flow):
+        return run_flow
+''')
+
+
+def test_c15_lifts_through_a_closure_and_a_function_passed_as_a_value(tmp_path):
+    # M-5 (first-use): the calls of `run_chain_set` went through the closure `_run_one`, and
+    # `run_flow` was a value. The extractor saw none of them and reported 2 false C15 absences.
+    (tmp_path / "m.py").write_text(CLOSURE, encoding="utf-8")
+    parsed, _ = cw.parse_files(tmp_path)
+    lifted, _, _ = cw.lift_calls(parsed, cw.extract_marks(parsed))
+    assert lifted[("run_set", "inputs_of")] == ["m.py:19"]          # a call inside the closure
+    assert lifted[("run_set", "run_flow")] == ["m.py:15 (ref)"]     # a value: the site says `ref`
+    assert ("unrelated", "run_flow") not in lifted                  # a parameter with the same name is not a ref

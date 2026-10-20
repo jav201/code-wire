@@ -7,7 +7,9 @@ Each `ejemplos:` line names its thread, e.g. `(AC-1) ...`. For a thread with a r
     0xK: 0xV        address/value (also `[0xK] = 0xV`) -> that key must map to that value, not just both exist
     `...`           literal text    -> substring of the call (inputs, output, modified inputs, files read/written)
     "..."  «...»    quoted strings  -> same; an elision `...`/`…` splits it and each piece must appear
+Quoted text of 1 or 2 characters (`"ok"`) must equal a whole recorded string, not a part of one.
 Prose around the anchors is not checked. A line marked «inferred» or «synthetic» is not observed: skipped.
+A line with no anchor is `no_anchor`, not `ok`. A node that the recorder skipped (no def yet) is `no_def`.
 
     python codewire_examples.py --graph G1.md [--graph G2.md] --trace AC-1=trace.json --out report.md
 """
@@ -35,15 +37,19 @@ def as_int(v):
 
 
 def anchors(line):
-    """(ints, texts, pairs) a line commits to; the leading `(THREAD ...)` tag is not an anchor."""
+    """(ints, texts, pairs, exact) a line commits to; the leading `(THREAD ...)` tag is not an anchor.
+    `exact`: quoted text of 1 or 2 characters, which only a whole recorded string can match."""
     body = re.sub(r"^\([^)]*\)\s*", "", line)
-    texts = []
+    texts, exact = [], []
     for m in re.finditer(r"`([^`]+)`|\"([^\"]+)\"|«([^»]+)»", body):
         t = next(g for g in m.groups() if g is not None)
-        texts += [p.strip() for p in ELISION.split(t) if len(p.strip()) >= 3]
+        pieces = [p.strip() for p in ELISION.split(t)]
+        if len(pieces) == 1 and 0 < len(pieces[0]) < 3:
+            exact.append(pieces[0])
+        texts += [p for p in pieces if len(p) >= 3]
     ints = {int(h, 16) for h in re.findall(r"\b0x[0-9A-Fa-f]+\b", body)}
     pairs = {(int(k, 16), int(v, 16)) for k, v in PAIR.findall(body)}
-    return ints, texts, pairs
+    return ints, texts, pairs, exact
 
 
 def haystack(call):
@@ -73,11 +79,13 @@ def haystack(call):
 
 def check_line(line, calls):
     """Missing anchors against the best recorded call (fewest misses); [] = the line holds."""
-    ints, texts, pairs = anchors(line)
+    ints, texts, pairs, exact = anchors(line)
     best = None
     for call in calls:
         text, have, have_pairs = haystack(call)
+        leaves = set(text.split("\n"))
         missing = ([hex(i) for i in sorted(ints - have)] + [t for t in texts if t not in text]
+                   + [t for t in exact if t not in leaves]
                    + [f"{hex(k)}: {hex(v)}" for k, v in sorted(pairs - have_pairs)])
         if best is None or len(missing) < len(best):
             best = missing
@@ -95,8 +103,12 @@ def check(graph_nodes, traces):
                 rows.append((node["name"], thread, "no_trace", "no recorded run for this thread"))
             elif re.search(r"\binferred\b|\bsynthetic\b", line[:60]):
                 rows.append((node["name"], thread, "not_observed", "marked as not observed in the run"))
+            elif node["name"] in traces[thread].get("_skipped", []):
+                rows.append((node["name"], thread, "no_def", "the node has no code yet: the recorder skipped it"))
             elif not traces[thread].get(node["name"]):
                 rows.append((node["name"], thread, "node_not_run", "the run never called this node"))
+            elif not any(anchors(line)):
+                rows.append((node["name"], thread, "no_anchor", "the line has no literal value to compare"))
             else:
                 missing = check_line(line, traces[thread][node["name"]])
                 rows.append((node["name"], thread, "ok" if not missing else "drift",
@@ -105,11 +117,13 @@ def check(graph_nodes, traces):
 
 
 def render(rows, traces):
-    count = {s: sum(1 for r in rows if r[2] == s) for s in ("ok", "drift", "node_not_run", "not_observed", "no_trace")}
+    count = {s: sum(1 for r in rows if r[2] == s)
+             for s in ("ok", "drift", "no_anchor", "node_not_run", "no_def", "not_observed", "no_trace")}
     out = ["# Code-Wire examples check", "",
            f"- Threads with a recorded run: {', '.join(sorted(traces)) or 'none'}",
-           f"- Example lines: {len(rows)} · ok {count['ok']} · drift {count['drift']} · node not run "
-           f"{count['node_not_run']} · not observed {count['not_observed']} · no trace {count['no_trace']}", "",
+           f"- Example lines: {len(rows)} · ok {count['ok']} · drift {count['drift']} · no anchor {count['no_anchor']}"
+           f" · node not run {count['node_not_run']} · no def {count['no_def']} · not observed {count['not_observed']}"
+           f" · no trace {count['no_trace']}", "",
            "| node | thread | status | detail |", "|---|---|---|---|"]
     out += [f"| `{n}` | {t} | {s} | {d} |" for n, t, s, d in rows]
     return "\n".join(out) + "\n"
