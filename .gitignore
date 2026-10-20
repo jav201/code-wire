@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.pytest_cache/
+desktop.ini
+out/
+cw-trace.json
