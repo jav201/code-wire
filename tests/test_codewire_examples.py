@@ -120,3 +120,25 @@ def test_recorder_skips_a_node_with_no_code_and_lists_it(tmp_path, monkeypatch):
     assert rec.TRACE["_skipped"] == ["new_step", "new_file_step"]
     rows = ce.check([node("new_step", "(AC-1) x 1 → y 0x2")], {"AC-1": rec.TRACE})
     assert rows[0][2] == "no_def"
+
+
+def test_number_in_backticks_is_an_anchor():
+    # v2.6: `4100` is a number the line commits to; the run has 4100 in `ranges`
+    assert ce.check_line("(AC-1) the range ends at `4100`", [CALL]) == []
+    assert ce.check_line("(AC-1) the range ends at `4101`", [CALL]) != []
+
+
+def test_bare_number_gets_a_warning_and_a_count_in_parentheses_does_not():
+    line = '(AC-1) 6 entries (2 of 3); `7`; "8"; 0x10; LLR-148.8; [1→N]'
+    assert ce.bare_numbers(line) == ["6"]
+    rows = ce.check([node("load", "(AC-1) path → 6 records")], {"AC-1": {"load": [CALL]}})
+    assert rows[0][4] == ["6"] and "bare number" in ce.render(rows, {"AC-1": {}})
+
+
+def test_node_status_comes_from_the_markers_and_the_marks():
+    # M-1: a node that keeps its signature but changes its behaviour must show as CHANGED
+    nodes = [node("new_step", "(AC-1, synthetic) x → y"), node("changed", "(AC-1) → 0x1", "(AT-2, synthetic) → 0x2"),
+             node("shipped", "(AC-1) → 0x1", "(AC-1, inferred) → 0x3")]
+    status = ce.node_status(nodes, {"AC-1": {"_skipped": ["new_step"]}})
+    assert {n: s for n, (s, _) in status.items()} == {"new_step": "NEW", "changed": "CHANGED", "shipped": "SHIPPED"}
+    assert "NEW 1 · CHANGED 1 · SHIPPED 1" in ce.render([], {"AC-1": {}}, status)

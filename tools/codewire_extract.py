@@ -8,6 +8,8 @@ against the declared ports, and applies C15: each call between marked nodes, lif
 nearest marked node through unmarked helpers (O2, reflexion-style), must be declared in the
 graph (`inner:` of the caller, or an edge between the two). Writes <out>/extract.json and
 <out>/diff-report.md. Stdlib only.
+v2.6: the section `## Boundary` gives edges to and from `[Outside: …]` items, and `discarded:` lines.
+`codewire_coherence.py` uses them for C2, C3 and C4.
 """
 import argparse
 import ast
@@ -218,9 +220,21 @@ def parse_entities(md_text):
     return [l.strip() for l in section(md_text, "Entities").splitlines() if l.strip().startswith("[")]
 
 
+def parse_discarded(md_text):
+    """`discarded: <node>.<output> — <reason>` lines of `## Boundary` (v2.6, §3.7)."""
+    out = []
+    for line in section(md_text, "Boundary").splitlines():
+        m = re.match(r"\s*discarded:\s*(\S+)\s*(?:—|-)\s*(.*)$", line)
+        if m:
+            out.append({"port": m.group(1), "reason": m.group(2).strip()})
+    return out
+
+
 def load_graphs(texts):
     """Merge several graph files that share one repo: nodes by name (first wins, a different
-    contract for the same name is reported), edges and entities concatenated."""
+    contract for the same name is reported), edges and entities concatenated.
+    The edges of `## Boundary` (v2.6) are edges with `boundary: True`, and their `[Outside: …]`
+    items are entities."""
     nodes, edges, entities, conflicts = {}, [], [], []
     for md in texts:
         file_nodes = parse_graph(md)
@@ -237,11 +251,16 @@ def load_graphs(texts):
     names = list(nodes)
     for md in texts:
         edges += parse_edges(md, names)
+        outer = parse_edges(md, names, "Boundary")
+        for e in outer:
+            e["boundary"] = True
+            entities += [ep["entity"] for ep in (e["src"], e["dst"]) if ep["entity"]]
+        edges += outer
     return list(nodes.values()), edges, list(dict.fromkeys(entities)), conflicts
 
 
-def parse_edges(md_text, node_names):
-    """Every `A ──▶ B` line of `## Edges`; a following `when:` line is attached to the edge.
+def parse_edges(md_text, node_names, title="Edges"):
+    """Every `A ──▶ B` line of `## <title>`; a following `when:` line is attached to the edge.
     An endpoint is an entity `[...]` or `<node>[.<port>]`, the node being the longest known prefix."""
     def endpoint(text):
         text = text.strip()
@@ -253,12 +272,12 @@ def parse_edges(md_text, node_names):
         return {"entity": None, "node": None, "port": None, "unknown": text}
 
     edges = []
-    for line in section(md_text, "Edges").splitlines():
+    for line in section(md_text, title).splitlines():
         line = line.strip()
         if ARROW in line:
             src, dst = line.split(ARROW, 1)
             dst = re.sub(r"^\[\d+→\w+\]\s*", "", dst.strip())  # quantifier such as [1→N]
-            edges.append({"src": endpoint(src), "dst": endpoint(dst), "when": None, "raw": line})
+            edges.append({"src": endpoint(src), "dst": endpoint(dst), "when": None, "raw": line, "boundary": False})
         elif line.startswith("when:") and edges:
             edges[-1]["when"] = line[len("when:"):].strip()
     return edges

@@ -331,3 +331,14 @@ def test_c15_lifts_through_a_closure_and_a_function_passed_as_a_value(tmp_path):
     assert lifted[("run_set", "inputs_of")] == ["m.py:19"]          # a call inside the closure
     assert lifted[("run_set", "run_flow")] == ["m.py:15 (ref)"]     # a value: the site says `ref`
     assert ("unrelated", "run_flow") not in lifted                  # a parameter with the same name is not a ref
+
+
+def test_boundary_section_gives_outside_items_and_discarded_outputs():
+    # v2.6 §3.7: the callers outside a flow slice are edges from `[Outside: …]` items
+    g = GRAPH + "\n## Boundary\n\n[Outside: key press] ──▶ Box.__init__\ndiscarded: Box.size.n — nothing reads it\n"
+    nodes, edges, entities, _ = cw.load_graphs([g])
+    outer = [e for e in edges if e["boundary"]]
+    assert len(outer) == 1 and outer[0]["src"]["entity"] == "[Outside: key press]"
+    assert outer[0]["dst"]["node"] == "Box.__init__" and "[Outside: key press]" in entities
+    assert all(not e["boundary"] for e in edges if e is not outer[0])
+    assert cw.parse_discarded(g) == [{"port": "Box.size.n", "reason": "nothing reads it"}]

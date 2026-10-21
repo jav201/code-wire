@@ -42,17 +42,20 @@ The tools are Python 3 with the standard library only. Run them from the root of
 | `tools/codewire_marks.py` | Writes the marks from the graph into a throwaway worktree | `python tools/codewire_marks.py --repo <worktree> --graph <graph.md>` |
 | `tools/cw_record_plugin.py` | A pytest plugin that records the inputs and outputs of each node while the real tests run | `CW_GRAPHS=<graph.md> CW_OUT=trace.json pytest -p cw_record_plugin`, with `tools/` on `PYTHONPATH` |
 | `tools/codewire_examples.py` | Checks the `examples:` lines against a recording (C16) | `python tools/codewire_examples.py --graph <graph.md> --trace <id>=trace.json --out report.md` |
+| `tools/codewire_coherence.py` | Checks C2, C3, C4, C7 and C10 with the v2.6 syntax (`## Boundary`, caller edges, `when:` with an output) | `python tools/codewire_coherence.py --graph <graph.md> [--trace <id>=trace.json] --out report.md` |
 | `tools/codewire_ste.py` | Checks the English text against the language rules (C17) | `python tools/codewire_ste.py <file.md> --glossary docs/Language-STE.md` |
 | `tools/codewire_inventory.py` | Lists the functions of a repository that can be nodes, by flow | `python tools/codewire_inventory.py --repo <repo> --out <file>` |
 
-Tests: `python -m pytest tests` (42 tests).
+Tests: `python -m pytest tests` (53 tests).
 
-In the report of `codewire_examples.py`, `ok` means that the line has an anchor and that the anchor is in the recording. A line with no anchor gets `no_anchor`. A node with no code yet gets `no_def`, because the recorder skips it and lists it in `_skipped`.
+In the report of `codewire_examples.py`, `ok` means that the line has an anchor and that the anchor is in the recording. A line with no anchor gets `no_anchor`. A node with no code yet gets `no_def`, because the recorder skips it and lists it in `_skipped`. A bare number gets a warning, because the check does not compare it. The report also gives the status of each node: NEW, CHANGED or SHIPPED.
+
+With `--trace`, the report of `codewire_coherence.py` gives the status of the node of each open item. Then you can see the C2 items of the PDR gate: the items of the NEW and CHANGED nodes.
 
 ## Known limits
 
 - `codewire_inventory.py` has the settings of the pilot application: `PACKAGE`, `APP_CLASS` and `FLOWS`. For a different repository, change these settings first.
 - The tools read Python code only.
 - Some names in the code and in the docstrings are still Spanish, for example `modulo_file`. The keys that the tools read are the v2.5 English keys.
-- The tools do not read the v2.6 syntax yet: `## Boundary`, `[Outside: …]`, `discarded:`, number anchors in backticks and the node status. The next increment (V2) adds it.
+- The node status comes from a recording: the recorder skips a node with no def. With no recording, the tools do not give the status.
 - The questions and the verdicts behind the method (`Preguntas-Abiertas.md`) are not in this repository. They are still in Spanish.
