@@ -125,3 +125,12 @@ def test_a_call_edge_with_no_ports_does_not_feed_an_input_under_the_text():
                     "OpenFolderChip._open_target ──▶ is_openable_chip_dir")
     _, res = cc.check([g])
     assert res["C2"] == [] and res["C2_call"] == [("is_openable_chip_dir", "root")]
+
+
+def test_a_return_edge_uses_the_output_of_the_called_node():
+    # §3.3 return edge: the caller uses the value in its body. It closes C3, and C4 follows it to the caller.
+    g = V26 + "discarded: open_folder_in_file_manager.opened — the press path shows the status line\n"
+    g = g.replace("## Boundary", "is_openable_chip_dir.openable ──▶ OpenFolderChip._open_target\n\n## Boundary")
+    g = g.replace("when: is_openable_chip_dir.openable", "when: openable is True")
+    _, res = cc.check([g])
+    assert res["C3"] == [] and res["C4_to"] == []
