@@ -2,7 +2,7 @@
 
 Code-Wire is a method to design software as a graph of black-box functions. First you write **what** the system does: nodes with typed inputs, one output and examples, plus the arrows between them. Then you write **how** each function works. At the end, a tool compares the code with the graph.
 
-Status: draft v2.5, an exploration. The method had one pilot on a real Python application (reverse direction: from code to graph). This repository is for the first tests on other cases.
+Status: draft v2.6, an exploration. The method had one pilot on a real Python application (reverse direction: from code to graph). It also had one real test in the forward direction (app first-use). v2.6 comes from that test. This repository is the source of the method text and of the tools.
 
 ## Read first
 
@@ -19,8 +19,8 @@ There are two directions.
 **Forward (PDR → DDR): the graph first, the code after.**
 
 1. Write the requirements with ids, for example `R-1`.
-2. Write the graph in format B (`## Nodes`, `## Entities`, `## Edges`). Use `examples/logtool-graph.md` as a model.
-3. Check coherence: apply rules C1–C17 (`docs/Metodologia.md` §5).
+2. Write the graph in format B (`## Nodes`, `## Entities`, `## Edges`). Use `examples/logtool-graph.md` as a model. For a slice of the application, add `## Boundary` with the callers and consumers outside it (`docs/Texto-Canonico.md` §7).
+3. Check coherence: apply the rules of the PDR gate (`docs/Metodologia.md` §8).
 4. Write each node as a stub with its mark `# node: <name>  [<req>]`. The stub returns the output of its example.
 5. Implement the nodes.
 6. Run the extractor, and correct each difference in the code or record it as a design decision (DDR).
@@ -54,4 +54,5 @@ In the report of `codewire_examples.py`, `ok` means that the line has an anchor 
 - `codewire_inventory.py` has the settings of the pilot application: `PACKAGE`, `APP_CLASS` and `FLOWS`. For a different repository, change these settings first.
 - The tools read Python code only.
 - Some names in the code and in the docstrings are still Spanish, for example `modulo_file`. The keys that the tools read are the v2.5 English keys.
+- The tools do not read the v2.6 syntax yet: `## Boundary`, `[Outside: …]`, `discarded:`, number anchors in backticks and the node status. The next increment (V2) adds it.
 - The questions and the verdicts behind the method (`Preguntas-Abiertas.md`) are not in this repository. They are still in Spanish.

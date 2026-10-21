@@ -1,6 +1,6 @@
 # Code-Wire — canonical text and visual view (proposal Q26, 2026-10-17)
 
-> Status: **decided 2026-10-18** (Q26, questionnaire on the page): C14, format B, no `**`, new fields, no ASCII overview in the source. Notation for optional: `X?` (Q27, decided 2026-10-18). Applied in `Metodologia.md` v2.4. It comes from Q19b: «In Excalidraw these diagrams are fascinating… but they must also exist only as text, for LLMs to read. In text the color is lost; I need that part reconciled» (original: «En excalidraw estos diagramas son fascinantes… pero también deben ser sólo en texto para lectura de LLMs. En texto se pierde color, necesito que se reconcilie esa parte»).
+> Status: **decided 2026-10-18** (Q26, questionnaire on the page): C14, format B, no `**`, new fields, no ASCII overview in the source. Notation for optional: `X?` (Q27, decided 2026-10-18). Applied in `Metodologia.md` v2.4. It comes from Q19b: «In Excalidraw these diagrams are fascinating… but they must also exist only as text, for LLMs to read. In text the color is lost; I need that part reconciled» (original: «En excalidraw estos diagramas son fascinantes… pero también deben ser sólo en texto para lectura de LLMs. En texto se pierde color, necesito que se reconcilie esa parte»). v2.6 (2026-10-21): the section `## Boundary` (§7) and the layer catalog (§8).
 
 ## 1. Proposed principle
 **The text is the source; the diagram is a view**. Each thing that the diagram shows with color, line weight, line style or position **comes from a field of the text**. No information exists only in the drawing.
@@ -30,6 +30,8 @@ Compliance test (proposed rule C14): remove all the styles from the diagram and 
 | Red `(!)` in P2 | a read before the write that wins | marker `(!)` in the step | **new** |
 
 The status column shows the state before the verdict of 2026-10-18. Since that verdict, all the items marked **new** or **changes** are decided. They are in `Metodologia.md` v2.4 and v2.5.
+
+These are the **base codes**. They are always on. v2.6 adds layers on top of them: §8 has the catalog. A layer never uses a base code.
 
 ## 3. Example: P2 in text (real data from app)
 
@@ -115,3 +117,50 @@ Verdicts (2026-10-18):
 - Remove `**`: yes.
 - The five new fields: yes.
 - `X?`: not accepted as it is → Q27.
+
+## 7. The section `## Boundary` (v2.6)
+A graph of a flow slice declares its callers and consumers outside the slice in the section `## Boundary`. The section comes after `## Edges`. It has two kinds of lines:
+
+- An edge with an `[Outside: name]` item at one end. The parser reads the item as an entity of the kind `Outside`.
+- A line `discarded: <node>.<output> — <reason>`. It names an output that nothing uses, and why.
+
+Example from the chip-open slice of app first-use:
+
+```
+## Boundary
+
+[Outside: chip press] ──▶ OpenFolderChip._open_target
+discarded: open_folder_in_file_manager.opened — the press path shows the status line, not the bool
+```
+
+Two edge forms of v2.6 go in `## Edges`, not in `## Boundary`:
+
+```
+OpenFolderChip._open_target ──▶ is_openable_chip_dir.root
+resolve_chip_target.target ──▶ open_folder_in_file_manager.path
+when: is_openable_chip_dir.openable
+```
+
+The first line is a caller edge: the source has no port, so `_open_target` computes `root` in its body. In the second edge, `when:` names an output, so that output counts as used. `Metodologia.md` §3.3 and §3.7 give the rules.
+
+## 8. Layer catalog (v2.6, decided 2026-10-20)
+A layer adds information to a view for one moment of the life cycle. Each layer has one source and one visual code, and no code is in two layers. "Not validated" means that this text defines the layer, but no real case used it yet. The first case that uses it can change it, with a written reason.
+
+| Layer | Name | Source | Visual code | View | Status |
+|---|---|---|---|---|---|
+| L1 | Thread values | `examples:` | teal dashed box with the line in a monospace font | high | validated |
+| L2 | Requirement trace | `req:` | violet tag on the node | high | validated |
+| L3 | Types | `in:`, `out:` | monospace lines in the node | both | validated |
+| L4 | Status | the markers and the marks (`Metodologia.md` §3.1) | NEW: dark pill; CHANGED: outlined pill; SHIPPED: no pill | high | validated (first-use) |
+| L5 | Boundary | `## Boundary` | `[Outside: …]` in gray brackets | both | new in v2.6 |
+| L6 | Code location | the marks (`file:line`) | gray monospace line under the node | low | validated |
+| L7 | Real calls and drift | the extractor run (C15) | thin gray arrow with the call site; orange for a divergence | low | validated |
+| L8 | Findings | `## Findings` | red dashed box (also a base code) | both | validated |
+| L9 | Effects and security | `modify:`, I/O entities, `(Callable)` inputs | pink label on the node and pink arrow to the entity | high | not validated |
+| L10 | Frequency | a recording and `[1→N]` | `×N` in a small circle | both | not validated |
+| L11 | Test coverage | the recordings and the test ids | full dot: recorded; empty dot: no recording | both | not validated |
+| L12 | State owner | `modify:` on `[Data]` entities | olive arrow: full line = writes, dotted line = reads | high | not validated |
+
+Two codes are not the first choice, because a base code already used them. L1 is teal, because the amber band is the `(Callable)` code. L9 is a pink label, because a thick border is "the write that wins" in a `sequence:` strip.
+
+A layer from a run (L7, L10, L11) gives the commit and the tests of that run in the legend. The presets are in `Metodologia.md` §4.

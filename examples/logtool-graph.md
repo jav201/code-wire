@@ -18,7 +18,7 @@ in: str filePath
 out: iter[str] fileLine
 func: opens the file and gives it line by line as an iterable
 module: logtool/reader.py
-examples: (synthetic) filePath "logs/app.log" (3 lines) → fileLine 2 of 3 "A 10:02 disk full"
+examples: (synthetic) filePath "logs/app.log" (3 lines) → fileLine (2 of 3) "A 10:02 disk full"
 
 Classify string log entry
 req: R-3

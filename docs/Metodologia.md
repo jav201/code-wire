@@ -1,6 +1,6 @@
-# Code-Wire — function contract graph method (draft v2.5)
+# Code-Wire — function contract graph method (draft v2.6)
 
-> Status: exploration. v2 (2026-10-15) starts from the author's sketch (`evidence/boceto-2026-10-15.jpg`, original in `G:\My Drive\dev-flow-radiografia\Scan_20261015_225327.jpg`): text notation instead of YAML; entities `[ ]` apart from the nodes; `modify:`; the graph frozen at PDR; link through a mark in the code. v2.1 (2026-10-16): the name **Code-Wire**; `req:` accepts more than one document; `(Callable)` as an input; purity includes reads; only two views; camelCase naming by default. v2.2 (2026-10-17): `(Callable)` with shading; app state = entity `[Data]`. v2.3 (2026-10-17, after the DDR pilot): PDR = faithful baseline, DDR = the graph agrees with the code (changes with a reason); closed, typed inputs; parameters with a default value go in; types as specific as possible; `module:` = path relative to the root, with no line. v2.4 (2026-10-18, Q25 and Q26): the text is the source and the diagram is a view (C14); format B, one field per line and no padding; no `**` (bold comes from the dot in `Class.method`); fields `inner:`, `when:`, `sequence:`, assignment kind in `modify:` and the section `## Findings`; O2 lifting (C15); optional type `X?` (Q27); examples as a literal thread; `modify:` on an input (Q28). 2026-10-19: literal anchors in `examples:` and C16 (the thread is checked against a recording). The open items are in `Preguntas-Abiertas.md`. 2026-10-19: the project moves to English, written to ASD-STE100 (C17, `Language-STE.md`). v2.5 (2026-10-19, E2): English keys (`module:`, `inner:`, `open:`, `sequence:`, `when:`, `examples:`, `req: to trace`); sections `## Nodes`, `## Entities`, `## Edges` and `## Findings`; `modify:` kinds `(replace)`, `(clear)` and `(append)`; example markers `inferred` and `synthetic`.
+> Status: exploration. v2 (2026-10-15) starts from the author's sketch (`evidence/boceto-2026-10-15.jpg`, original in `G:\My Drive\dev-flow-radiografia\Scan_20261015_225327.jpg`): text notation instead of YAML; entities `[ ]` apart from the nodes; `modify:`; the graph frozen at PDR; link through a mark in the code. v2.1 (2026-10-16): the name **Code-Wire**; `req:` accepts more than one document; `(Callable)` as an input; purity includes reads; only two views; camelCase naming by default. v2.2 (2026-10-17): `(Callable)` with shading; app state = entity `[Data]`. v2.3 (2026-10-17, after the DDR pilot): PDR = faithful baseline, DDR = the graph agrees with the code (changes with a reason); closed, typed inputs; parameters with a default value go in; types as specific as possible; `module:` = path relative to the root, with no line. v2.4 (2026-10-18, Q25 and Q26): the text is the source and the diagram is a view (C14); format B, one field per line and no padding; no `**` (bold comes from the dot in `Class.method`); fields `inner:`, `when:`, `sequence:`, assignment kind in `modify:` and the section `## Findings`; O2 lifting (C15); optional type `X?` (Q27); examples as a literal thread; `modify:` on an input (Q28). 2026-10-19: literal anchors in `examples:` and C16 (the thread is checked against a recording). The open items are in `Preguntas-Abiertas.md`. 2026-10-19: the project moves to English, written to ASD-STE100 (C17, `Language-STE.md`). v2.5 (2026-10-19, E2): English keys (`module:`, `inner:`, `open:`, `sequence:`, `when:`, `examples:`, `req: to trace`); sections `## Nodes`, `## Entities`, `## Edges` and `## Findings`; `modify:` kinds `(replace)`, `(clear)` and `(append)`; example markers `inferred` and `synthetic`. v2.6 (2026-10-21, after the first real test, app first-use): the markers give the status NEW / CHANGED / SHIPPED (§3.1); numbers in backticks are anchors; the caller edge, `[Outside: …]` and the section `## Boundary` (§3.3, §3.7); a message is an edge with no lift; layers and presets on the two views (§4); a new PDR gate (§8).
 
 ## 1. Idea in one line
 First, you design **what** the system does: a network of black-box functions. The data that flows between the functions connects them, and so do the entities that use that data. Then you write **how** each function works, with no limits. At the end, you review the code against the network.
@@ -56,6 +56,17 @@ Do not use `**`: the dot in `Class.method` shows a method. Why B and not one lin
 5. **A node that the thread does not pass through** takes the thread of a different test that exercises it. This shows which test covers that node.
 6. **Say what does not come from the thread**. If a node produces nothing for the data of the thread, write that (`OVER_B → no issue`).
 7. **Literal anchors (2026-10-19).** Write each value that the line commits to as a literal anchor. A literal anchor is hexadecimal `0x…`, text in backticks, text in quotes `"…"` or text in `«…»`. The check takes an address/value pair (`0x1000: 0xAA`, `mem_map[0x1000] = 0xAA`) as one pair. Other text is prose that the check ignores. If the run did not show a value, write the marker in the source (`(AC-1, inferred)`), and C16 ignores it. Do not anchor a value that a different node sets, or a code constant (a limit, a threshold).
+8. **Number anchors (v2.6).** A decimal number that the line commits to goes in backticks: `` `6` entries ``. The check compares it with the numbers of the recorded call. A number outside backticks and outside parentheses is a bare number. The check gives a warning for it, because the check does not compare it. A warning does not make the line fail. The counts in parentheses (`record 3 of 4`) are not anchors.
+9. **Markers and status (v2.6).** The source marker tells why a line has no recording:
+   - `synthetic`: behaviour that the design adds or changes. The code does not do it yet.
+   - `inferred`: behaviour that the code already has, with no recording.
+
+   The status of a node comes from the markers and from the marks in the code. It is not a field (§2):
+   - **NEW**: the node has no def in the code.
+   - **CHANGED**: the node has a def and at least one `synthetic` line.
+   - **SHIPPED**: all the other nodes.
+
+   Thus a node that keeps its signature but changes its behaviour shows as CHANGED. The extractor cannot see that change, because the signature is the same.
 
 **Type + name:** the name obeys the design rules (domain vocabulary), and the type gives the name its context. **The type is as specific as possible (Q23):** if the data can have only a set of types, write that set (`dict[str, int]`, `int | str`). If it really can be any type (`Any`, a `dict` without parameters), write it like that. Give the reason in the `open:` field of the node (`open: payload — fields that the view sets; they change for each screen`). You can use primitives (`str filePath`). Declare a composite data item one time, as a named type with fields.
 
@@ -102,6 +113,11 @@ Read file.fileLine ──▶ [1→N] Classify string log entry.fileLine
 
 - **Alternative branch:** an edge that exists only under a condition has `when: <condition>` (for example `when: primary_file is None`). The view draws it purple and dashed. This does not contradict the composite output. The condition decides which flow exists. It does not branch the output of a node.
 
+- **`when:` with an output (v2.6).** The condition can name an output: `when: is_openable_chip_dir.openable`. The edge is then a use of that output, and C3 counts it as used. Use this form when a `bool` output only selects an edge.
+- **Caller edge (v2.6).** The source of this edge is a node with no port: `OpenFolderChip._open_target ──▶ is_openable_chip_dir.root`. It means that the source node computes the value in its own body and passes it. C2 counts the input as fed.
+- **Outside item (v2.6).** `[Outside: name]` is a caller or a consumer outside the graph, for example a key press or the event loop of a framework. It uses the bracket form of an entity. The section `## Boundary` declares it (§3.7). An edge from an outside item is the `external` of C2.
+- **Message (v2.6).** A framework message (for example `post_message` in Textual) is not a call, so C15 cannot see it. Declare it as a usual edge. C15 does not look for a call for that edge.
+
 **Branched arrow = same value (Q25, 2026-10-18).** If the output of a node goes to more than one consumer, all the consumers receive the same value. The node runs one time for each flow (except with `[1→N]`). This is a contract, not a guarantee. DDR checks it with C15. When a node runs two times, the review shows the **overlap view** (diagram 12).
 
 ### 3.4 Granularity
@@ -112,6 +128,20 @@ A node can be a subsystem whose inside is a different graph. From outside, it be
 
 ### 3.6 Pure node (derived)
 A node is pure if it **has no `modify:`**, not on entities and not on its inputs (Q28). Also, **it receives no arrow from an entity** (decided 2026-10-16, Q17). A read from a file, a database or a shared state is also an effect. The output of a pure node depends only on its inputs. Its examples alone test it, its stub is trivial, and it is the easiest task to delegate. At DDR, a pure node that uses an entity is drift.
+
+### 3.7 Boundary of a flow slice (v2.6)
+A graph often covers only a slice of the application: the flows that a change touches. A slice has callers and consumers outside it. The section `## Boundary` declares them, so that C2, C3 and C4 do not report the edge of the slice as a problem.
+
+```
+## Boundary
+
+[Outside: chip press] ──▶ OpenFolderChip._open_target
+discarded: open_folder_in_file_manager.opened — the press path shows the status line, not the bool
+```
+
+- A line with `[Outside: …]` is an edge from or to an outside item. An outside item is a source or a sink for C4. C10 does not ask for a node that writes it.
+- A `discarded:` line names an output that nothing uses, and gives the reason after `—`. C3 counts it as declared. If the reason is not a design decision, write a finding (`## Findings`) instead.
+- Do not put a node or an entity of the slice in `## Boundary`.
 
 ## 4. Views and visual notation
 One graph, **only two views** (rule, 2026-10-16). There are no intermediate views:
@@ -126,14 +156,30 @@ Visual aids (standard, simple):
 - Each visual code comes from a field of the text (C14). The full table is in `Texto-Canonico.md` §2. Its status column shows the state on 2026-10-17.
 - Bars `| |` = node; brackets `[ ]` = entity.
 
+**Layers and presets (v2.6, decided 2026-10-20).** Each moment of the life cycle needs different information on the diagram. For example, the high view with the thread values helps to prototype and to trace the requirements. The low view helps at DDR. Thus a view can show **layers**, and a **preset** is a fixed set of layers for one moment. The catalog of the 12 layers, with their visual codes, is in `Texto-Canonico.md` §8.
+
+| Preset | View | Layers | Use |
+|---|---|---|---|
+| Prototype | high | L1 thread values, L2 requirement trace, L5 boundary | Before PDR: check that the thread meets each requirement |
+| PDR | high | L2, L3 types, L4 status, L5 | At PDR: review the contracts of the NEW and CHANGED nodes |
+| DDR | low | L6 code location, L7 real calls and drift, L8 findings | At DDR: the code obeys the graph. The low view always has the full contract |
+| Effects | high | L9 effects, L5 | A security review: what the program writes, and what comes from outside |
+
+Rules for the layers:
+1. Each visual code belongs to one layer only. The base codes of `Texto-Canonico.md` §2 do not change.
+2. Each layer has one source: a field of the text, or the output of a tool. A layer from a run gives the commit and the tests of that run. This is how C14 applies to a layer that does not come from the text.
+3. A diagram uses a preset, or its legend lists each layer that it adds.
+4. Each layer has a status: validated or not validated. The first real case can change a layer that is not validated, with a written reason.
+5. A layer does not add a field to a node.
+
 ## 5. Coherence rules (a machine can check them)
 
 | # | Rule | What it finds |
 |---|---|---|
 | C1 | Each arrow joins equal types | contracts that do not fit |
-| C2 | Each input has an incoming arrow (from a node or an entity) or is `external` | data that nothing produces |
-| C3 | Each output that is not `None` has ≥ 1 outgoing arrow, or the graph declares it `discarded` | data that nothing uses |
-| C4 | Each node is reachable from a source and reaches an entity or a sink | islands and dead ends |
+| C2 | Each input has an incoming arrow: from a node port, from a caller edge, from an entity, or from an `[Outside: …]` item (`external`) (§3.3) | data that nothing produces |
+| C3 | Each output that is not `None` has ≥ 1 outgoing arrow, or a `when:` names it, or `## Boundary` has a `discarded:` line for it | data that nothing uses |
+| C4 | Each node is reachable from a source and reaches an entity or a sink. An entity and an `[Outside: …]` item are sources and sinks | islands and dead ends |
 | C5 | Each node traces to ≥ 1 requirement | functions with no reason to exist |
 | C6 | Each functional requirement has ≥ 1 node | requirements with no coverage |
 | C7 | The names of nodes, entities and types are unique | ambiguity |
@@ -155,7 +201,7 @@ Requirements → Graph → Coherence → Stubs → [PDR] → Implementation in w
 ```
 
 1. **Graph.** Start from the requirements: nodes, entities, arrows. Only the *what*.
-2. **Coherence.** Apply C1–C17. C15 and C16 apply at DDR, and C17 applies to all text.
+2. **Coherence.** Apply the rules of the PDR gate (§8). C15 applies at DDR. C16 applies to each line that has a recording, and C17 applies to all text.
 3. **Stubs.** Generate each node as a function with its mark (§7). The function returns the output of its example. The network runs from end to end without one algorithm. **Here the graph becomes the baseline (PDR)**. At DDR it can change with a reason, and it must agree with the code (§2).
 4. **Implementation in waves.** Implement the nodes in topological order, and the nodes of one wave in parallel. A node passes acceptance when it passes its examples and obeys its type. The implementation phase sets the bounded repair and the escalation.
 5. **Review (DDR).** A tool extracts the real graph from the code. The review compares it with the design graph (diff, §8). The graph gets no new fields.
@@ -178,12 +224,23 @@ def validate_file_path(file_path: str) -> str:
 ## 8. Reviews
 
 ### PDR — the *what* is closed
-- The graph is coherent (C1–C14 and C17 with no violations).
+**The gate (v2.6).** The table shows where each rule stops a review. In the first real test, the threads and the recordings found all the major problems. C2 and C12 on the NEW nodes found four minor ones. C1, C3 and C4 cost many edges on a slice, and they found no design problem.
+
+| Rule | Gate at PDR | Gate at DDR |
+|---|---|---|
+| C16 threads: each NEW and CHANGED node has ≥ 1 line with an anchor; each recorded line holds; a probe runs each arm with no recording | yes | yes |
+| C2 and C12 on the NEW and CHANGED nodes | yes | yes |
+| C5–C11, C13, C14, C17 | yes | yes |
+| C1, C3, C4, and C2 on the SHIPPED nodes | a list, not a gate | yes |
+| C15 | no | yes |
+
+- The rules of the PDR gate have no violations.
 - Each node has ≥ 1 example and its `module`.
 - Each stub has its mark. The skeleton runs from end to end.
 - The requirement ↔ node trace is complete.
 
 ### DDR — the code obeys the graph
+- The rules of the DDR gate (the table above) have no violations.
 - Each node has exactly one mark in the code, and each mark belongs to a node.
 - Each node passes its examples: C16 shows no drift against the recording of each source (`cw_record_plugin.py` + `codewire_examples.py`). A list shows each source with no recording as not checked. Each node with a `contract` has a verified contract.
 - **When DDR closes, the graph agrees with the code.** Each graph change since PDR has a record of its reason.
@@ -226,7 +283,7 @@ in: str filePath
 out: iter[str] fileLine
 func: opens the file and gives it line by line as an iterable
 module: logtool/reader.py
-examples: (synthetic) filePath "logs/app.log" (3 lines) → fileLine 2 of 3 "A 10:02 disk full"
+examples: (synthetic) filePath "logs/app.log" (3 lines) → fileLine (2 of 3) "A 10:02 disk full"
 
 Classify string log entry
 req: R-3
