@@ -134,3 +134,35 @@ def test_a_return_edge_uses_the_output_of_the_called_node():
     g = g.replace("when: is_openable_chip_dir.openable", "when: openable is True")
     _, res = cc.check([g])
     assert res["C3"] == [] and res["C4_to"] == []
+
+
+SPACES = """## Nodes
+
+Read file
+req: R-1
+in: str path
+out: bool ok
+func: reads the file
+
+Show error
+req: R-2
+in: str path
+out: None
+func: shows the error
+
+## Edges
+
+Read file ──▶ Show error.path
+when: Read file.ok is False
+
+## Boundary
+
+[Outside: command line] ──▶ Read file.path
+"""
+
+
+def test_when_finds_an_output_of_a_node_name_with_spaces():
+    # Notation-Grammar.md §2 lets a node name have spaces (`Read file`). The first word of the condition
+    # is `Read`, not a node: before E7b, C3 did not see the use and reported `Read file.ok`.
+    _, res = cc.check([SPACES])
+    assert res["C3"] == []

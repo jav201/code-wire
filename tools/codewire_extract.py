@@ -10,6 +10,8 @@ graph (`inner:` of the caller, or an edge between the two). Writes <out>/extract
 <out>/diff-report.md. Stdlib only.
 v2.6: the section `## Boundary` gives edges to and from `[Outside: …]` items, and `discarded:` lines.
 `codewire_coherence.py` uses them for C2, C3 and C4.
+E7b: `parse_text` gives the full parse of `docs/Notation-Grammar.md` §8, with the warnings G1–G7 of §9.
+`codewire_lint.py` writes it.
 """
 import argparse
 import ast
@@ -19,7 +21,11 @@ from pathlib import Path
 
 MARK_RE = re.compile(r"^\s*#\s*node:\s*(\S+)\s*(?:\[([^\]]*)\])?")
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".dev-flow"}
-NODE_KEYS = ("req", "in", "out", "func", "module", "modify", "inner", "open", "sequence")
+NODE_KEYS = ("req", "in", "out", "func", "module", "modify", "inner", "open", "contract")  # and `examples:`
+ENTITY_KEYS = ("in", "desc", "sequence")
+FINDING_KEYS = ("anchor", "seen", "cause", "effect", "decision")
+SECTIONS = ("Nodes", "Entities", "Edges", "Boundary", "Findings")
+ASSIGN_RE = re.compile(r"\s*\((replace|clear|append)\)\s*$")
 TYPING_ALIASES = {"List": "list", "Dict": "dict", "Tuple": "tuple", "Set": "set", "FrozenSet": "frozenset", "Type": "type"}
 ARROW = "──▶"
 MAX_LIFT_DEPTH = 6
@@ -149,7 +155,7 @@ def nested_optional(t):
 
 
 def parse_decl(item):
-    """`tipo nombre [= default]`, `(Callable) A->B nombre`, `Clase self` -> {kind, type, name, default}."""
+    """`type name [= default]`, `(Callable) A->B name`, `Class self` -> {kind, type, name, default}."""
     item = item.strip()
     default = None
     if " = " in item:
@@ -195,22 +201,26 @@ def parse_graph(md_text):
             if m and m.group(1) == "examples":  # repeatable: one line per input → output pair
                 examples.append(m.group(2).strip())
             elif m and m.group(1) in NODE_KEYS:
-                fields[m.group(1)] = m.group(2).strip()
+                fields.setdefault(m.group(1), m.group(2).strip())  # a second line of a key is G3: skipped
         if "in" not in fields and "out" not in fields:
             continue
         req = fields.get("req")
         reqs = None if req is None else [] if req == "to trace" else [r.strip() for r in req.split(",") if r.strip()]
+        modify = split_top(fields.get("modify", ""), ";")
         nodes.append({
             "name": lines[0].strip(),
             "reqs": reqs,
             "in": [parse_decl(i) for i in split_top(fields.get("in", ""), ";")],
             "out": parse_out(fields.get("out", "")),
-            "modulo_file": fields.get("module") or None,
+            "module": fields.get("module") or None,
             "inner": [x.strip() for x in fields.get("inner", "").split(",") if x.strip()],
             "examples": examples,
             # `modify:` targets without their assignment kind: an entity `[...]` or an input path (Q28)
-            "modify": [re.sub(r"\s*\((replace|clear|append)\)\s*$", "", x).strip()
-                       for x in split_top(fields.get("modify", ""), ";")],
+            "modify": [ASSIGN_RE.sub("", x).strip() for x in modify],
+            "assign": [ASSIGN_RE.search(x).group(1) if ASSIGN_RE.search(x) else None for x in modify],
+            "func": fields.get("func") or None,
+            "open": fields.get("open") or None,
+            "contract": fields.get("contract") or None,
         })
     return nodes
 
@@ -241,7 +251,7 @@ def load_graphs(texts):
         for n in file_nodes:
             if n["name"] in nodes:
                 a, b = nodes[n["name"]], n
-                if (a["in"], a["out"]["type"], a["modulo_file"]) != (b["in"], b["out"]["type"], b["modulo_file"]):
+                if (a["in"], a["out"]["type"], a["module"]) != (b["in"], b["out"]["type"], b["module"]):
                     conflicts.append(n["name"])
                 else:  # same node seen by two flows: each brings its own thread
                     a["examples"] += [e for e in b["examples"] if e not in a["examples"]]
@@ -276,11 +286,177 @@ def parse_edges(md_text, node_names, title="Edges"):
         line = line.strip()
         if ARROW in line:
             src, dst = line.split(ARROW, 1)
-            dst = re.sub(r"^\[\d+→\w+\]\s*", "", dst.strip())  # quantifier such as [1→N]
-            edges.append({"src": endpoint(src), "dst": endpoint(dst), "when": None, "raw": line, "boundary": False})
+            q = re.match(r"(\[\d+→\w+\])\s*", dst.strip())  # quantifier such as [1→N]
+            dst = dst.strip()[q.end():] if q else dst
+            edges.append({"src": endpoint(src), "dst": endpoint(dst), "quantifier": q.group(1) if q else None,
+                          "when": None, "raw": line, "boundary": False})
         elif line.startswith("when:") and edges:
             edges[-1]["when"] = line[len("when:"):].strip()
     return edges
+
+
+# ---------- full parse and warnings (Notation-Grammar.md §8, §9) ----------
+
+def numbered_sections(md_text):
+    """{title: [(line number, line)]} for each `## ` section; a second section with the same title is not read."""
+    out, cur = {}, None
+    for i, line in enumerate(md_text.splitlines(), 1):
+        m = re.match(r"## (.*?)\s*$", line)
+        if m:
+            cur = m.group(1) if m.group(1) not in out else None
+            if cur:
+                out[cur] = []
+        elif cur:
+            out[cur].append((i, line))
+    return out
+
+
+def numbered_blocks(lines):
+    """The groups of non-blank lines, with no note block (`###` or `>`)."""
+    blocks, cur = [], []
+    for i, line in lines + [(0, "")]:
+        if line.strip():
+            cur.append((i, line))
+        elif cur:
+            if not cur[0][1].lstrip().startswith(("#", ">")):
+                blocks.append(cur)
+            cur = []
+    return blocks
+
+
+def parse_step(text):
+    """A step of a `sequence:` line: `node [wins] [(!)] [(prose)]`."""
+    m = re.match(r"(.+?)( wins)?( \(!\))?( \(.*\))?$", text.strip())
+    return {"node": m.group(1).strip(), "wins": bool(m.group(2)), "early": bool(m.group(3))}
+
+
+def entity_kind(name):
+    m = re.match(r"\[([^:\]]+):", name)
+    return m.group(1).strip() if m else None
+
+
+def parse_entity_blocks(md_text):
+    """The `[Kind: name]` blocks of `## Entities` with their fields: `in:`, `desc:` and the `sequence:` lines."""
+    out = []
+    for block in numbered_blocks(numbered_sections(md_text).get("Entities", [])):
+        name = block[0][1].strip()
+        if not name.startswith("["):
+            continue
+        ent, in_seq = {"name": name, "kind": entity_kind(name), "in": None, "desc": None, "sequence": []}, False
+        for _, line in block[1:]:
+            ev = re.match(r"\s+(\w+):\s*(.*)$", line)
+            if in_seq and ev:
+                ent["sequence"].append({"event": ev.group(1), "steps": [parse_step(s) for s in ev.group(2).split("→")]})
+                continue
+            f = re.match(r"(\w+):\s*(.*)$", line)
+            in_seq = bool(f) and f.group(1) == "sequence"
+            if f and f.group(1) in ("in", "desc") and ent[f.group(1)] is None:
+                ent[f.group(1)] = f.group(2).strip() or None
+        out.append(ent)
+    return out
+
+
+def parse_findings(md_text):
+    """The `finding <id> <title>` blocks of `## Findings` with their fields."""
+    out = []
+    for block in numbered_blocks(numbered_sections(md_text).get("Findings", [])):
+        m = re.match(r"finding\s+(\S+)\s*(.*)$", block[0][1].strip())
+        if not m:
+            continue
+        f = {"id": m.group(1), "title": m.group(2).strip() or None, **{k: None for k in FINDING_KEYS}}
+        for _, line in block[1:]:
+            fm = re.match(r"(\w+):\s*(.*)$", line)
+            if fm and fm.group(1) in FINDING_KEYS and f[fm.group(1)] is None:
+                f[fm.group(1)] = fm.group(2).strip() or None
+        out.append(f)
+    return out
+
+
+def graph_warnings(md_text):
+    """The warnings G1–G7 of Notation-Grammar.md §9: [{code, line, text}], in the order of the lines."""
+    secs = numbered_sections(md_text)
+    names = [n["name"] for n in parse_graph(md_text)]
+    entities = set(parse_entities(md_text)) | {ep["entity"] for e in parse_edges(md_text, names, "Boundary")
+                                               for ep in (e["src"], e["dst"]) if ep["entity"]}
+    w = []
+
+    def warn(code, line, text):
+        w.append({"code": code, "line": line, "text": text})
+
+    def known(end, declared_only):
+        end = re.sub(r"^\[\d+→\w+\]\s*", "", end.strip())
+        if end.startswith("["):
+            return not declared_only or end in entities
+        return any(end == n or end.startswith(n + ".") for n in names)
+
+    def fields(block, keys, where, twice):
+        seen = set()
+        for i, line in block[1:]:
+            f = re.match(r"(\w+):", line)
+            key = f.group(1) if f else None
+            if key not in keys:
+                warn("G2", i, f"`{line.strip()[:40]}` in {where}: not a field of the grammar")
+            elif key in seen and twice and key != "examples":  # one `examples:` line for each pair
+                warn("G3", i, f"`{key}:` two times in {where}: the second line is skipped")
+            seen.add(key)
+        return seen
+
+    for i, line in enumerate(md_text.splitlines(), 1):
+        m = re.match(r"## (.*?)\s*$", line)
+        if m and m.group(1) not in SECTIONS:
+            warn("G1", i, f"section `{m.group(1)}` is not part of the graph")
+    for block in numbered_blocks(secs.get("Nodes", [])):
+        i, first = block[0][0], block[0][1].strip()
+        if first.startswith("[") or ":" in first:
+            warn("G7", i, f"`{first[:40]}`: a block in `## Nodes` with no name line")
+        elif not {"in", "out"} & fields(block, NODE_KEYS + ("examples",), f"node `{first}`", True):
+            warn("G7", i, f"node `{first}` has no `in:` and no `out:`")
+    for block in numbered_blocks(secs.get("Entities", [])):
+        rest = [(i, l) for i, l in block if not re.match(r"\s+\w+:", l)]  # the lines under `sequence:`
+        if block[0][1].startswith("["):
+            fields(rest, ENTITY_KEYS, f"entity `{block[0][1].strip()}`", False)
+    for title in ("Edges", "Boundary"):
+        edge_before = False
+        for i, line in secs.get(title, []):
+            s = line.strip()
+            if ARROW in s:
+                edge_before = True
+                for end in s.split(ARROW, 1):
+                    if not known(end, False):
+                        warn("G4", i, f"`{end.strip()}` is not a node, a port of a node or an entity")
+            elif s.startswith("when:") and not edge_before:
+                warn("G5", i, "`when:` with no edge before it")
+    for block in numbered_blocks(secs.get("Findings", [])):
+        i, first = block[0][0], block[0][1].strip()
+        if not re.match(r"finding\s+\S+", first):
+            warn("G7", i, f"`{first[:40]}`: a block in `## Findings` with no `finding` line")
+            continue
+        fields(block, FINDING_KEYS, f"finding `{first.split()[1]}`", True)
+        for j, line in block[1:]:
+            a = re.match(r"anchor:\s*(.*)$", line)
+            if a and not all(known(end, True) for end in a.group(1).split(ARROW)):
+                warn("G6", j, f"anchor `{a.group(1).strip()}` is not in the graph")
+    return sorted(w, key=lambda x: x["line"])
+
+
+def parse_text(md_text):
+    """The full parse of one graph text, in the shape of Notation-Grammar.md §8."""
+    nodes, edges, entities, _ = load_graphs([md_text])
+    blocks = {e["name"]: e for e in parse_entity_blocks(md_text)}
+    end = lambda p: {k: p[k] for k in ("node", "port", "entity")}  # noqa: E731
+    return {
+        "nodes": [{"name": n["name"], "reqs": n["reqs"], "in": n["in"], "out": n["out"], "func": n["func"],
+                   "module": n["module"], "examples": n["examples"],
+                   "modify": [{"target": t, "assign": a} for t, a in zip(n["modify"], n["assign"])],
+                   "inner": n["inner"], "open": n["open"], "contract": n["contract"]} for n in nodes],
+        "entities": [blocks.get(e, {"name": e, "kind": entity_kind(e), "in": None, "desc": None, "sequence": []})
+                     for e in entities],
+        "edges": [{"src": end(e["src"]), "dst": end(e["dst"]), "quantifier": e["quantifier"], "when": e["when"],
+                   "boundary": e["boundary"], "raw": e["raw"]} for e in edges],
+        "discarded": parse_discarded(md_text),
+        "findings": parse_findings(md_text),
+        "warnings": graph_warnings(md_text),
+    }
 
 
 # ---------- C15: call resolution and O2 lifting ----------
@@ -500,16 +676,16 @@ def diff(marks, graph_nodes, edges, lifted, top_level, entities=None, conflicts=
 
     for node in graph_nodes:
         if not node.get("examples"):
-            add("graph_examples_missing", node["modulo_file"] or "?", f"`{node['name']}` has no `examples:` line")
+            add("graph_examples_missing", node["module"] or "?", f"`{node['name']}` has no `examples:` line")
         m = by_mark.get(node["name"])
         if m is None:
-            add("graph_node_without_mark", node["modulo_file"] or "?", f"`{node['name']}`")
+            add("graph_node_without_mark", node["module"] or "?", f"`{node['name']}`")
             continue
         where = f"{m['file']}:{m['line']}"
         d = m["def"]
 
-        if node["modulo_file"] and m["file"] != node["modulo_file"]:
-            add("module_mismatch", where, f"graph says `{node['modulo_file']}`")
+        if node["module"] and m["file"] != node["module"]:
+            add("module_mismatch", where, f"graph says `{node['module']}`")
 
         if node["reqs"] is None:
             add("graph_req_field_missing", where, f"`{node['name']}` has no `req:` in the graph")

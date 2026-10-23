@@ -121,7 +121,7 @@ def test_generated_marks_are_what_the_extractor_reads(tmp_path):
     nodes = cw.parse_graph(GRAPH)
     placed, missing = mk.emit(repo, nodes)
     assert [m["name"] for m in placed] == ["FirmwareFile.__init__", "FirmwareFile.get_overlap_addresses"]
-    assert missing == [{"name": "FirmwareFile.gone", "modulo": "app/core.py", "why": "no def"}]
+    assert missing == [{"name": "FirmwareFile.gone", "module": "app/core.py", "why": "no def"}]
     marks = cw.extract_marks(cw.parse_files(repo)[0])
     got = {m["name"]: (m["reqs"], m["def"]["qualname"]) for m in marks}
     assert got == {"FirmwareFile.__init__": (["R-1", "R-2"], "FirmwareFile.__init__"),

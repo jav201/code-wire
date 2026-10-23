@@ -87,9 +87,9 @@ Validate filePath.validFilePath ──▶ Read file.filePath
 
 ## Findings
 
-H-1
+finding H-1 the reader stops on a gzip file
 anchor: Read file
-what: """ + " ".join(["word"] * 26) + """.
+effect: """ + " ".join(["word"] * 26) + """.
 evidence: `reader.py:12`; """ + " ".join(["word"] * 30) + """
 
 ## Notes
@@ -103,7 +103,7 @@ def test_a_graph_section_checks_only_its_prose_fields():
     found = ste.check_text(GRAPH, GLOSSARY)
     lines = GRAPH.splitlines()
     flagged = sorted((lines[f[1] - 1].split(":")[0] if ":" in lines[f[1] - 1] else "prose", f[2]) for f in found)
-    assert flagged == [("prose", "S1"), ("what", "S1")]  # the long `in:`, `examples:` and `evidence:` lines pass
+    assert flagged == [("effect", "S1"), ("prose", "S1")]  # the long `in:`, `examples:` and `evidence:` lines pass
 
 
 def test_a_prose_field_in_a_graph_is_still_checked_for_the_glossary():

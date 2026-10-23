@@ -1,11 +1,11 @@
 # Code-Wire — canonical text and visual view (proposal Q26, 2026-10-17)
 
-> Status: **decided 2026-10-18** (Q26, questionnaire on the page): C14, format B, no `**`, new fields, no ASCII overview in the source. Notation for optional: `X?` (Q27, decided 2026-10-18). Applied in `Metodologia.md` v2.4. It comes from Q19b: «In Excalidraw these diagrams are fascinating… but they must also exist only as text, for LLMs to read. In text the color is lost; I need that part reconciled» (original: «En excalidraw estos diagramas son fascinantes… pero también deben ser sólo en texto para lectura de LLMs. En texto se pierde color, necesito que se reconcilie esa parte»). v2.6 (2026-10-21): the section `## Boundary` (§7) and the layer catalog (§8).
+> Status: **decided 2026-10-18** (Q26, questionnaire on the page): C14, format B, no `**`, new fields, no ASCII overview in the source. Notation for optional: `X?` (Q27, decided 2026-10-18). Applied in `Metodologia.md` v2.4. It comes from Q19b: «In Excalidraw these diagrams are fascinating… but they must also exist only as text, for LLMs to read. In text the color is lost; I need that part reconciled». v2.6 (2026-10-21): the section `## Boundary` (§7) and the layer catalog (§8). 2026-10-23: the full form of each line is in `Notation-Grammar.md`. The Spanish originals of the quotes are in the project vault, not in this repository.
 
 ## 1. Proposed principle
 **The text is the source; the diagram is a view**. Each thing that the diagram shows with color, line weight, line style or position **comes from a field of the text**. No information exists only in the drawing.
 
-This is the idea of the original sketch: «text source and color code as visual aids» (original: «fuente de texto y código de colores como ayudas visuales»). Color helps the eye. The data lives in the text.
+This is the idea of the original sketch: «text source and color code as visual aids». Color helps the eye. The data lives in the text.
 
 Compliance test (proposed rule C14): remove all the styles from the diagram and generate it again from the text. No information must disappear. Also, a large language model (LLM) that reads only the text can answer each question that the diagram answers.
 
@@ -17,13 +17,13 @@ Compliance test (proposed rule C14): remove all the styles from the diagram and 
 | Bold | method (not function) | the name has the form `Class.method` (with a dot). Remove the `**…**` from the text: it was redundant and fragile for the parser | **changes**: remove `**` |
 | Bars `\| \|` | node | node block (name line + one field on each line) | already in text |
 | Brackets `[ ]` | entity | block `[Category: name]` | already in text |
-| Double bar / dashed frame | subsystem | field `inner:` with the list of inner nodes | **new field** (today it is a free note «(subsistema)») |
+| Double bar / dashed frame | subsystem | field `inner:` with the list of inner nodes | **new field** (today it is a free note «(subsystem)») |
 | Shaded band | `(Callable)` input | `(Callable) A->B name` in `in:` | already in text |
 | Arrow | connection | explicit list of edges `source.output ──▶ target.input` | already in text (the list of edges is the source; a tool generates the overview from it, §6) |
 | `[1→N]` | iteration | `[1→N]` on the edge | already in text |
 | Label `modify` | effect on an entity | `modify:` of the node | already in text |
 | Dashed purple | alternative branch | on the edge: `when: <condition>` | **new** (today only in the drawing of 06a) |
-| Dashed red | review finding | section `## Findings` with an id (`H-1`) and the node or edge that it anchors to; **not part of the contract** | **new** (today in free notes) |
+| Dashed red | review finding | section `## Findings`: `finding <id> <title>`, then `anchor:`, `seen:`, `cause:`, `effect:` and `decision:` (`Notation-Grammar.md` §7); **not part of the contract** | **new** (today in free notes) |
 | Translucent gray | discarded option | only in decision diagrams; source = verdict table | n/a to the graph |
 | P2 strip (order for each event) | write/read order of a `[Data]` entity | block `sequence:` of the entity (see §3) | **new** |
 | Thick border in P2 | the write that wins | `wins` at the end of the step | **new** |
@@ -73,7 +73,7 @@ Here an LLM reads the same thing that the eye sees in the strip. It sees who wri
 3. Do we add the new fields `inner:`, `when:` and `sequence:` (with `wins` and `(!)`)? Do we add the assignment kind in `modify:` and the `## Findings` section?
 
 ## 6. Compact format (2026-10-18)
-Request: «in text there are many blank spaces… they are tokens to process. I need something more compact, maybe like a dictionary, without loss of ease of reading for a machine» (original: «en texto hay muchos espacios en blanco… son tokens que hay que procesar. Necesito que sea algo más compacto, tal vez a modo de diccionario, sin perder la facilidad de lectura para máquina»).
+Request: «in text there are many blank spaces… they are tokens to process. I need something more compact, maybe like a dictionary, without loss of ease of reading for a machine».
 
 Measurement on the 15 nodes of the pilot (a script in the scratchpad of the session). **The session has no Claude tokenizer**: «~tokens» is an approximate count of words and signs. It is an indication, not an exact value.
 
@@ -149,7 +149,7 @@ A layer adds information to a view for one moment of the life cycle. Each layer 
 | Layer | Name | Source | Visual code | View | Status |
 |---|---|---|---|---|---|
 | L1 | Thread values | `examples:` | teal dashed box with the line in a monospace font | high | validated |
-| L2 | Requirement trace | `req:` | violet tag on the node | high | validated |
+| L2 | Requirement trace | `req:` | violet box with the requirement id | high | validated |
 | L3 | Types | `in:`, `out:` | monospace lines in the node | both | validated |
 | L4 | Status | the markers and the marks (`Metodologia.md` §3.1) | NEW: dark pill; CHANGED: outlined pill; SHIPPED: no pill | high | validated (first-use) |
 | L5 | Boundary | `## Boundary` | `[Outside: …]` in gray brackets | both | new in v2.6 |
