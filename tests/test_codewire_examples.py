@@ -142,3 +142,29 @@ def test_node_status_comes_from_the_markers_and_the_marks():
     status = ce.node_status(nodes, {"AC-1": {"_skipped": ["new_step"]}})
     assert {n: s for n, (s, _) in status.items()} == {"new_step": "NEW", "changed": "CHANGED", "shipped": "SHIPPED"}
     assert "NEW 1 · CHANGED 1 · SHIPPED 1" in ce.render([], {"AC-1": {}}, status)
+
+
+# A1, from the app audits of 2026-10-23 (data MF-3, MF-4; UI MF-2)
+
+def test_a_float_in_backticks_is_an_anchor_with_a_tolerance():
+    # data CW-D-10: the decoded value 3000.0 against the 30.0 that the A2L text gives. Before A1 a float
+    # could not be an anchor, so the main evidence of that defect went to prose and no tool checked it.
+    call = {"in": {"raw": 300}, "out": {"phys": 3000.0}}
+    assert ce.check_line("(T4) raw `300` → phys `3000.0`", [call]) == []
+    assert ce.check_line("(T4) raw `300` → phys `3000.0000000001`", [call]) == []
+    assert ce.check_line("(T4) raw `300` → phys `30.0`", [call]) == ["30.0"]
+
+
+def test_an_escaped_backslash_matches_its_own_form():
+    # data MF-4: a Markdown report writes `patch\.json`. Before A1 every `\` became `/`, so this
+    # literal could never match and C16 gave a false drift. A Windows path must still match `/`.
+    call = {"out": {"report": "laneA input 1: patch\\.json [bound]"}}
+    assert ce.check_line("(T3) → `patch\\.json [bound]`", [call]) == []
+    assert ce.check_line('(AC-1) path ".../proj/prg.s19"', [CALL]) == []
+
+
+def test_screen_padding_does_not_make_a_drift():
+    # UI MF-2: the painted card pads columns (`was    38`). The anchor names the value, not the padding.
+    call = {"out": {"card": "was    38 39 3A 3B\nnow    DE AD BE EF"}}
+    assert ce.check_line("(U3) → `was 38 39 3A 3B`", [call]) == []
+    assert ce.check_line("(U3) → `was 38 39 3A 3C`", [call]) == ["was 38 39 3A 3C"]

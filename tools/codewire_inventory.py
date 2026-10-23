@@ -1,4 +1,4 @@
-"""Code-Wire inventory: which functions of a Python repo are node candidates (Metodología §3.4), and
+"""Code-Wire inventory: which functions of a Python repo are node candidates (Metodologia.md §3.4), and
 which flow each one belongs to. The draft the graph text starts from (reverse direction, D2).
 
 Every def under the package is classified by fixed rules, no judgement:
@@ -47,8 +47,8 @@ FLOWS = [
     ("app/tui/mac.py", "F1"), ("app/tui/models.py", "F1"), ("app/tui/services/load_service.py", "F1"),
     ("app/tui/services/a2l_service.py", "F1"),
 ]
-FLOW_NAMES = {"F1": "Carga", "F2": "Validación cruzada", "F3": "Parche", "F4": "Flujos", "F5": "Operaciones CRC",
-              "F6": "Comparación", "F7": "Reportes", "F8": "Proyecto", "F9": "Análisis", "F10": "CLI"}
+FLOW_NAMES = {"F1": "Load", "F2": "Cross-validation", "F3": "Patch", "F4": "Flows", "F5": "CRC operations",
+              "F6": "Comparison", "F7": "Reports", "F8": "Project", "F9": "Analysis", "F10": "CLI"}
 # no textual import, but they only decide how things look
 PRESENTATION = ("app/render/", "app/tui/legend.py", "app/tui/color_policy.py",
                 "app/tui/entropy_style.py", "app/tui/insight_style.py")

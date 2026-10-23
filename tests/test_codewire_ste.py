@@ -114,3 +114,10 @@ def test_the_model_graph_of_the_repository_passes_c17():
     graph = Path(__file__).resolve().parents[1] / "examples" / "logtool-graph.md"
     errors = [f for f in ste.check_text(graph.read_text(encoding="utf-8"), ste.load_glossary(RULES)) if f[3] == "error"]
     assert errors == []
+
+
+def test_the_boundary_section_is_structure_not_prose():
+    # UI MF-8: before A1 the edges of `## Boundary` were read as one long sentence (an S1 error),
+    # as the edges of `## Edges` were before first-use M-2. Its `discarded:` reasons stay structure too.
+    edges = "\n".join(f"[Outside: key {i}] ──▶ node_{i}.value" for i in range(12))
+    assert rules("## Boundary\n\n" + edges + "\ndiscarded: node_1.value — " + " ".join(["word"] * 30)) == []

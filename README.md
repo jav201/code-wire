@@ -48,7 +48,7 @@ The tools are Python 3 with the standard library only. Run them from the root of
 | `tools/codewire_ste.py` | Checks the English text against the language rules (C17) | `python tools/codewire_ste.py <file.md> --glossary docs/Language-STE.md` |
 | `tools/codewire_inventory.py` | Lists the functions of a repository that can be nodes, by flow | `python tools/codewire_inventory.py --repo <repo> --out <file>` |
 
-Tests: `python -m pytest tests` (91 tests).
+Tests: `python -m pytest tests` (95 tests).
 
 In the report of `codewire_examples.py`, `ok` means that the line has an anchor and that the anchor is in the recording. A line with no anchor gets `no_anchor`. A node with no code yet gets `no_def`, because the recorder skips it and lists it in `_skipped`. A bare number gets a warning, because the check does not compare it. The report also gives the status of each node: NEW, CHANGED or SHIPPED.
 
@@ -58,6 +58,5 @@ With `--trace`, the report of `codewire_coherence.py` gives the status of the no
 
 - `codewire_inventory.py` has the settings of the pilot application: `PACKAGE`, `APP_CLASS` and `FLOWS`. For a different repository, change these settings first.
 - The tools read Python code only.
-- `codewire_inventory.py` names its flows in Spanish (`FLOW_NAMES`), and two docstrings cite `Metodología`. The keys and the JSON fields of the tools are English.
 - The node status comes from a recording: the recorder skips a node with no def. With no recording, the tools do not give the status.
 - The questions and the verdicts behind the method (`Open-Questions.md`) are not in this repository. They are in the project vault, in English.
