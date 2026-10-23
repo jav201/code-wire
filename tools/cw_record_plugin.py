@@ -1,7 +1,7 @@
 """Code-Wire recorder: a read-only pytest plugin that records the literal I/O of every graph node
 while real tests run, so `codewire_examples.py` can check the graph's `ejemplos:` against it.
 
-Generic: the nodes come from the graph files (name + `modulo:`), not from a hand-written list.
+Generic: the nodes come from the graph files (name + `module:`), not from a hand-written list.
     CW_GRAPHS  graph .md files, separated by os.pathsep
     CW_OUT     trace JSON to write (default cw-trace.json)
     CW_MAX     calls kept per node (default 3)
@@ -120,8 +120,8 @@ def wrap(node, fn):
 
 
 def resolve(node):
-    """(owner, attr, function) for a node: `modulo:` gives the module, the name gives the attribute."""
-    mod = importlib.import_module(node["modulo_file"][:-3].replace("/", "."))
+    """(owner, attr, function) for a node: `module:` gives the module, the name gives the attribute."""
+    mod = importlib.import_module(node["module"][:-3].replace("/", "."))
     parts = node["name"].split(".")
     owner = mod
     for p in parts[:-1]:

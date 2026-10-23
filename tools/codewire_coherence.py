@@ -19,6 +19,7 @@ Exit code 1 when an item of C2, C3, C4, C7 or C10 is open. Stdlib only.
 import argparse
 import collections
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -28,11 +29,13 @@ import codewire_extract as cw  # noqa: E402
 
 
 def port_root(port):
-    return (port or "").split(".")[0].split("[")[0]
+    """The output or input name at the start of a port: `entries[].status` -> `entries`, `ok is False` -> `ok`."""
+    return re.split(r"[.\[\s]", port or "")[0]
 
 
 def endpoint(text, names):
-    """(node, output) when `text` is `<node>.<output>` of a known node, the longest name first."""
+    """(node, output) when `text` starts with `<node>.<output>` of a known node, the longest name first.
+    A node name can have spaces (`Read file.ok is False`), so the text is not split at the first space."""
     for name in sorted(names, key=len, reverse=True):
         if text.startswith(name + "."):
             return name, port_root(text[len(name) + 1:])
@@ -60,7 +63,7 @@ def check(texts):
 
     used = {(e["src"]["node"], port_root(e["src"]["port"])) for e in edges if e["src"]["node"] and e["src"]["port"]}
     # `when: <node>.<output> ...` and `discarded: <node>.<output>` use that output (v2.6)
-    named = [e["when"].split()[0] for e in edges if e["when"]] + [d["port"] for d in discarded]
+    named = [e["when"] for e in edges if e["when"]] + [d["port"] for d in discarded]
     for text in named:
         ep = endpoint(text, names)
         if ep:
@@ -73,7 +76,7 @@ def check(texts):
         b = e["dst"]["node"] or e["dst"]["entity"]
         if a and b:
             adj[a].add(b)
-        gate = endpoint(e["when"].split()[0], names) if e["when"] else None
+        gate = endpoint(e["when"], names) if e["when"] else None
         if gate and b:  # `when: <node>.<output>`: that node feeds the edge it selects
             adj[gate[0]].add(b)
     for n in nodes:

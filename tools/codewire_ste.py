@@ -3,8 +3,8 @@ measurable rules of ASD-STE100, as `Language-STE.md` sets them for this project?
 
 Checked, per sentence of prose (paragraphs and list items; not headings, tables, code). In the graph
 sections (`## Nodes`, `## Entities`, `## Edges`, `## Findings`) only the prose fields are prose: each
-`func:`, `desc:`, `open:`, `what:`, `consequence:` and `decision:` value is one paragraph, and the
-other lines are structure (Language-STE.md §2):
+`func:`, `desc:`, `open:`, `contract:` value, and each `seen:`, `cause:`, `effect:` and `decision:` value
+of a finding (Notation-Grammar.md §7), is one paragraph. The other lines are structure (Language-STE.md §2):
     S1 length       a sentence in a numbered step has 20 words or fewer; any other sentence, 25 or fewer
     S2 one step     a numbered step gives one instruction: no `;`, `, then`, `and then`
     S3 paragraph    a paragraph has 6 sentences or fewer
@@ -30,7 +30,7 @@ PASSIVE = re.compile(r"\b(is|are|was|were|be|been|being)\s+(?:\w+ly\s+)?(\w+ed|k
                      r"found|shown|run|set|kept|left|built|sent|taken|seen|put|split|cut)\b", re.I)
 WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9'’_/.-]*")
 GRAPH_SECTIONS = ("## nodes", "## entities", "## edges", "## findings")
-PROSE_FIELD = re.compile(r"^(func|desc|open|what|consequence|decision):\s*(.*)$")
+PROSE_FIELD = re.compile(r"^(func|desc|open|contract|seen|cause|effect|decision):\s*(.*)$")
 
 
 def load_glossary(path):

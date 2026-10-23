@@ -2,7 +2,7 @@
 throwaway worktree, so the text stays the only source (C14) and nothing has to be rebased when the
 code moves.
 
-For every node, the def named by the node (qualname) in its `modulo:` file gets
+For every node, the def named by the node (qualname) in its `module:` file gets
 `# node: <name>  [<req>, ...]` on the line above it (above its decorators, same indentation),
 exactly what `codewire_extract.extract_marks` reads. A node whose file or def is gone is reported,
 not guessed: in a snapshot that is "node without code". Before writing, the marks of the previous
@@ -56,10 +56,10 @@ def emit(repo, nodes):
     clear_previous_marks(repo)
     by_file, missing = defaultdict(list), []
     for n in nodes:
-        rel = n["modulo_file"]
+        rel = n["module"]
         path = repo / rel if rel else None
         if not path or not path.is_file():
-            missing.append({"name": n["name"], "modulo": rel, "why": "no file"})
+            missing.append({"name": n["name"], "module": rel, "why": "no file"})
             continue
         by_file[rel].append(n)
     placed = []
@@ -73,7 +73,7 @@ def emit(repo, nodes):
         for n in file_nodes:
             fn = defs.get(n["name"])
             if fn is None:
-                missing.append({"name": n["name"], "modulo": rel, "why": "no def"})
+                missing.append({"name": n["name"], "module": rel, "why": "no def"})
                 continue
             first = min([fn.lineno] + [d.lineno for d in fn.decorator_list])
             inserts.append((first, mark_line(n, fn.col_offset), n["name"]))
@@ -100,7 +100,7 @@ def main(argv=None):
         a.out.write_text(json.dumps({"placed": placed, "missing": missing, "conflicts": conflicts}, indent=1), encoding="utf-8")
     print(f"{len(placed)} marks written, {len(missing)} nodes without code" + (f", conflicts {conflicts}" if conflicts else ""))
     for m in missing:
-        print(f"  missing: {m['name']} ({m['modulo']}): {m['why']}")
+        print(f"  missing: {m['name']} ({m['module']}): {m['why']}")
     return 0
 
 
