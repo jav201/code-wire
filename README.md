@@ -51,7 +51,7 @@ The tools are Python 3 with the standard library only. Run them from the root of
 | `tools/codewire_ste.py` | Checks the English text against the language rules (C17) | `python tools/codewire_ste.py <file.md> --glossary docs/Language-STE.md` |
 | `tools/codewire_inventory.py` | Lists the functions of a repository that can be nodes, by flow | `python tools/codewire_inventory.py --repo <repo> --out <file>` |
 
-Tests: `python -m pytest tests` (164 tests).
+Tests: `python -m pytest tests` (172 tests).
 
 In the report of `codewire_examples.py`, `ok` means that the line has an anchor and that the anchor is in the recording. A line with no anchor gets `no_anchor`. A node with no code yet gets `no_def`, because the recorder skips it and lists it in `_skipped`. A bare number gets a warning, because the check does not compare it. The report also gives the status of each node: NEW, CHANGED or SHIPPED.
 
