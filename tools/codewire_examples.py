@@ -28,6 +28,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import codewire_events as events  # noqa: E402
 import codewire_extract as cw  # noqa: E402
 
 ELISION = re.compile(r"\.\.\.|…")
@@ -208,14 +209,18 @@ def render(rows, traces, status=None):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--graph", required=True, type=Path, action="append")
-    ap.add_argument("--trace", required=True, action="append", help="THREAD=trace.json (from cw_record_plugin)")
+    ap.add_argument("--trace", required=True, action="append", help="THREAD=trace.json, or THREAD=events.jsonl (an event log)")
     ap.add_argument("--out", required=True, type=Path)
     a = ap.parse_args(argv)
     nodes, _, _, _ = cw.load_graphs([g.read_text(encoding="utf-8") for g in a.graph])
     traces = {}
     for t in a.trace:
         name, _, path = t.partition("=")
-        traces[name] = json.loads(Path(path).read_text(encoding="utf-8"))
+        if path.endswith(".jsonl"):   # an event log (A2d): every recorded call, not only three
+            traces[name] = events.trace_view(events.read(path), max_calls=None,
+                                             skipped=events.read_meta(path).get("skipped", []))
+        else:
+            traces[name] = json.loads(Path(path).read_text(encoding="utf-8"))
     rows = check(nodes, traces)
     a.out.write_text(render(rows, traces, node_status(nodes, traces)), encoding="utf-8")
     drift = sum(1 for r in rows if r[2] == "drift")

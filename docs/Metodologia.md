@@ -243,7 +243,9 @@ def validate_file_path(file_path: str) -> str:
 ### DDR — the code obeys the graph
 - The rules of the DDR gate (the table above) have no violations.
 - Each node has exactly one mark in the code, and each mark belongs to a node.
-- Each node passes its examples: C16 shows no drift against the recording of each source (`cw_record_plugin.py` + `codewire_examples.py`). A list shows each source with no recording as not checked. Each node with a `contract` has a verified contract.
+- Each node passes its examples: C16 shows no drift against the recording of each source (`cw_record_plugin.py` + `codewire_examples.py`). A list shows each source with no recording as not checked.
+- **The event log (A2, 2026-10-24).** The recorder also writes an event log (`cw-events.jsonl`). Each recorded call has its root, its parent node, its step and a hash of its values. The root is the entry point that started the call (a key, a button, a handler). It is `harness` when a test or a script called the node directly. C16 reads a log as a recording.
+- **Views of a log.** For each root, a log gives the examples of each node, the paths (variants) and a root × node matrix (`codewire_events.py report`). Two logs of the same run give the first step that differs (`codewire_events.py diff`). Volatile values (a clock, an object id) go in `CW_VOLATILE`, so that equal runs give equal hashes. A Textual app needs `CW_ADAPTERS=textual`, and a probe script runs under `cw_record_run.py`.
 - **When DDR closes, the graph agrees with the code.** Each graph change since PDR has a record of its reason.
 - The lifted calls (C15) have no open divergences. The review examines each repeated call in the overlap view, with its path. The path shows where each call comes from and where it goes: it complements, duplicates or diverges.
 - The review findings go in the `## Findings` section of the text. Each finding has a line `finding <id> <title>` (`H-1`) and one-line fields: `anchor:` (the node, port, entity or edge), `seen:`, `cause:`, `effect:` and `decision:` (`Notation-Grammar.md` §7). **They are not part of the contract.** The view draws them in dashed red.
