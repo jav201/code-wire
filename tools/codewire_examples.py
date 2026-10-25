@@ -17,6 +17,8 @@ compare it. A1: a recorded string matches in its own form, and also with each ba
 a Windows path matches, and so does a Markdown escape before a dot. A text anchor and a recorded
 string are compared with each run of spaces as one space. The report also gives the status of each
 node: NEW (the recorder skipped it: no def), CHANGED (a def and at least one `synthetic` line) or SHIPPED.
+A3a: a line whose source names its root (`(U2, U2.4, root TuiApp.on_button_pressed)`) compares only with
+the recorded calls of that root; with no such call, the line is `root_not_run`.
 
     python codewire_examples.py --graph G1.md [--graph G2.md] --trace AC-1=trace.json --out report.md
 """
@@ -36,6 +38,8 @@ DECIMAL = re.compile(r"-?\d+")
 FLOAT = re.compile(r"-?\d+\.\d+")
 FLOAT_IN_TEXT = re.compile(r"(?<![\w.])-?\d+\.\d+(?![\w.])")
 SPACES = re.compile(r"\s+")
+EXPECT_NONE = re.compile(r"→\s*expect none\b")
+FAILS = ("drift", "root_not_run", "step_not_run")
 
 
 def spaced(text):
@@ -147,23 +151,77 @@ def check(graph_nodes, traces):
     rows = []
     for node in graph_nodes:
         for line in node["examples"]:
-            m = re.match(r"\(([^,)]+)", line)
-            thread = m.group(1).strip() if m else "?"
+            src = cw.example_source(line)
+            thread = src["thread"] or "?"
             bare = bare_numbers(line)
             if thread not in traces:
                 rows.append((node["name"], thread, "no_trace", "no recorded run for this thread", bare))
             elif SYNTHETIC.search(line[:60]) or INFERRED.search(line[:60]):
                 rows.append((node["name"], thread, "not_observed", "marked as not observed in the run", bare))
+            elif EXPECT_NONE.search(line):
+                rows.append((node["name"], thread, *expect_none(traces[thread], node["name"], src), bare))
             elif node["name"] in traces[thread].get("_skipped", []):
                 rows.append((node["name"], thread, "no_def", "the node has no code yet: the recorder skipped it", bare))
             elif not traces[thread].get(node["name"]):
                 rows.append((node["name"], thread, "node_not_run", "the run never called this node", bare))
+            elif src["root"] and not [c for c in traces[thread][node["name"]] if c.get("root") == src["root"]]:
+                rows.append((node["name"], thread, "root_not_run", f"no recorded call of this node from the root `{src['root']}`", bare))
             elif not any(anchors(line)):
                 rows.append((node["name"], thread, "no_anchor", "the line has no literal value to compare", bare))
             else:
-                missing = check_line(line, traces[thread][node["name"]])
+                calls = traces[thread][node["name"]]
+                if src["root"]:   # A3a: a line that names its root compares only with the calls of that root
+                    calls = [c for c in calls if c.get("root") == src["root"]]
+                missing = check_line(line, calls)
                 rows.append((node["name"], thread, "ok" if not missing else "drift",
                              "" if not missing else "not in the run: " + ", ".join(f"`{x}`" for x in missing), bare))
+    return rows
+
+
+def step_calls(trace, node, src):
+    """The calls of `node` in the step (and from the root) that a source names."""
+    return [c for c in trace.get(node, []) if c.get("step") == src["step"] and (not src["root"] or c.get("root") == src["root"])]
+
+
+def step_known(trace, src):
+    """None when the step can be checked, else (status, detail)."""
+    if not src["step"]:
+        return "not_checkable", "the source names no step"
+    if "_steps" not in trace:
+        return "not_checkable", "this needs an event log: a trace has no steps"
+    if src["step"] not in trace["_steps"]:
+        return "step_not_run", f"the log has no step `{src['step']}`"
+    return None
+
+
+def expect_none(trace, node, src):
+    """A3b: `→ expect none`: the node has no call in that step."""
+    bad = step_known(trace, src)
+    if bad:
+        return bad
+    ran = step_calls(trace, node, src)
+    return ("ok", "") if not ran else ("drift", f"the node ran {len(ran)} time(s) in step `{src['step']}`")
+
+
+def check_offers(entities, traces):
+    """A3b: one row per `offers:` line: (entity, control, node, thread, status, detail).
+    An offer with a source holds when its node ran in that step: the control did what it promises."""
+    rows = []
+    for ent in entities:
+        for o in ent.get("offers", []):
+            src = o["source"] or {"thread": None, "step": None, "root": None}
+            t = src["thread"]
+            if not t:
+                rows.append((ent["name"], o["control"], o["node"], "-", "not_checked", "the offer names no recorded step"))
+            elif t not in traces:
+                rows.append((ent["name"], o["control"], o["node"], t, "no_trace", "no recorded run for this thread"))
+            elif step_known(traces[t], src):
+                rows.append((ent["name"], o["control"], o["node"], t, *step_known(traces[t], src)))
+            elif step_calls(traces[t], o["node"], src):
+                rows.append((ent["name"], o["control"], o["node"], t, "ok", ""))
+            else:
+                rows.append((ent["name"], o["control"], o["node"], t, "drift",
+                             f"`{o['node']}` did not run in step `{src['step']}`: the control does not do what it offers"))
     return rows
 
 
@@ -185,18 +243,21 @@ def node_status(graph_nodes, traces):
     return status
 
 
-def render(rows, traces, status=None):
+def render(rows, traces, status=None, offers=()):
     count = {s: sum(1 for r in rows if r[2] == s)
-             for s in ("ok", "drift", "no_anchor", "node_not_run", "no_def", "not_observed", "no_trace")}
+             for s in ("ok", "drift", "root_not_run", "step_not_run", "not_checkable", "no_anchor", "node_not_run", "no_def", "not_observed", "no_trace")}
     warned = [r for r in rows if r[4]]
     out = ["# Code-Wire examples check", "",
            f"- Threads with a recorded run: {', '.join(sorted(traces)) or 'none'}",
-           f"- Example lines: {len(rows)} · ok {count['ok']} · drift {count['drift']} · no anchor {count['no_anchor']}"
+           f"- Example lines: {len(rows)} · ok {count['ok']} · drift {count['drift']} · root not run {count['root_not_run']} · step not run {count['step_not_run']} · not checkable {count['not_checkable']} · no anchor {count['no_anchor']}"
            f" · node not run {count['node_not_run']} · no def {count['no_def']} · not observed {count['not_observed']}"
            f" · no trace {count['no_trace']}",
            f"- Lines with a bare number (a warning: the check does not compare it): {len(warned)}", "",
            "| node | thread | status | detail | bare numbers |", "|---|---|---|---|---|"]
     out += [f"| `{n}` | {t} | {s} | {d} | {', '.join(b)} |" for n, t, s, d, b in rows]
+    if offers:
+        out += ["", "## Offers (A3b)", "", "| entity | control | node | thread | status | detail |", "|---|---|---|---|---|---|"]
+        out += [f"| `{e}` | \"{c}\" | `{n}` | {t} | {s} | {d} |" for e, c, n, t, s, d in offers]
     if status:
         kinds = ("NEW", "CHANGED", "SHIPPED")
         out += ["", "## Node status", "",
@@ -212,20 +273,24 @@ def main(argv=None):
     ap.add_argument("--trace", required=True, action="append", help="THREAD=trace.json, or THREAD=events.jsonl (an event log)")
     ap.add_argument("--out", required=True, type=Path)
     a = ap.parse_args(argv)
-    nodes, _, _, _ = cw.load_graphs([g.read_text(encoding="utf-8") for g in a.graph])
+    texts = [g.read_text(encoding="utf-8") for g in a.graph]
+    nodes, _, _, _ = cw.load_graphs(texts)
+    entities = [e for t in texts for e in cw.parse_entity_blocks(t)]
     traces = {}
     for t in a.trace:
         name, _, path = t.partition("=")
         if path.endswith(".jsonl"):   # an event log (A2d): every recorded call, not only three
-            traces[name] = events.trace_view(events.read(path), max_calls=None,
+            traces[name] = events.trace_view(events.read(path, markers=True), max_calls=None,
                                              skipped=events.read_meta(path).get("skipped", []))
         else:
             traces[name] = json.loads(Path(path).read_text(encoding="utf-8"))
     rows = check(nodes, traces)
-    a.out.write_text(render(rows, traces, node_status(nodes, traces)), encoding="utf-8")
-    drift = sum(1 for r in rows if r[2] == "drift")
-    print(f"{len(rows)} example lines, {drift} drift -> {a.out}")
-    return 1 if drift else 0
+    offers = check_offers(entities, traces)
+    a.out.write_text(render(rows, traces, node_status(nodes, traces), offers), encoding="utf-8")
+    drift = sum(1 for r in rows if r[2] in FAILS)   # a line on a root or a step that never ran does not hold
+    broken = sum(1 for r in offers if r[4] in FAILS)
+    print(f"{len(rows)} example lines, {drift} drift; {len(offers)} offers, {broken} not kept -> {a.out}")
+    return 1 if drift or broken else 0
 
 
 if __name__ == "__main__":

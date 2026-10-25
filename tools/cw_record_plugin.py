@@ -94,8 +94,26 @@ def files_in(value):
     return found
 
 
+def volatile_paths(node):
+    """`volatile:` of a node as (part, path) for `events.event_hash`: an input name, `out`, the name of
+    the output or of an item of a tuple output, and then the fields after the dots."""
+    ins = {d["name"] for d in node.get("in", [])}
+    outs = node.get("out", {}).get("names", [])
+    paths = []
+    for item in node.get("volatile", []):
+        name, *fields = item.split(".")
+        if name in ins:
+            paths.append(("in", [name] + fields))
+        elif name == "out" or outs == [name]:
+            paths.append(("out", fields))
+        elif name in outs:
+            paths.append(("out", [outs.index(name)] + fields))
+    return paths
+
+
 def wrap(node, fn):
     sig = inspect.signature(fn)
+    volatile = volatile_paths(node)
     # Q28: a `modify:` on an input (`mem_map`, `document.entries[].status`) is recorded after the call
     modified = [m.split(".")[0].split("[")[0] for m in node["modify"] if m and not m.startswith("[")]
 
@@ -126,7 +144,7 @@ def wrap(node, fn):
         except BaseException:
             DEPTH[0] -= 1
             call["raised"] = True
-            events.end(ev, call)
+            events.end(ev, call, volatile)
             raise
         DEPTH[0] -= 1
         is_init = node["name"].endswith(".__init__")
@@ -138,7 +156,7 @@ def wrap(node, fn):
         files = files_in(list(args.values()) + [r])
         if files:
             call["files"] = files
-        events.end(ev, call)
+        events.end(ev, call, volatile)
         return r
     return w
 

@@ -26,7 +26,7 @@ def lines_of(md, title, pred):
 
 def test_the_grammar_has_an_example_for_each_section():
     found = {t for md in EXAMPLES for t in re.findall(r"^## (\w+)", md, re.M)}
-    assert found == {"Nodes", "Entities", "Edges", "Boundary", "Findings"}
+    assert found == {"Nodes", "Entities", "Edges", "Boundary", "Routes", "Findings"}
 
 
 @pytest.mark.parametrize("md", EXAMPLES, ids=[f"example-{i + 1}" for i in range(len(EXAMPLES))])
@@ -72,9 +72,9 @@ def test_each_example_gives_no_warning(md):
 
 
 def test_each_warning_code_of_the_grammar_is_given_by_the_parser():
-    codes = re.findall(r"^\| (G\d) \|", DOC, re.M)
-    assert codes == [f"G{i}" for i in range(1, 8)]
-    assert set(codes) == set(re.findall(r'warn\("(G\d)"', (ROOT / "tools" / "codewire_extract.py").read_text(encoding="utf-8")))
+    codes = re.findall(r"^\| (G\d+) \|", DOC, re.M)
+    assert codes == [f"G{i}" for i in range(1, 13)]
+    assert set(codes) == set(re.findall(r'warn\("(G\d+)"', (ROOT / "tools" / "codewire_extract.py").read_text(encoding="utf-8")))
 
 
 def test_the_parse_has_the_keys_of_the_json_table():
@@ -84,7 +84,7 @@ def test_the_parse_has_the_keys_of_the_json_table():
     want = {k: set(re.findall(r"`(\w+)`", re.sub(r"\([^)]*\)", "", v))) for k, v in table.items()}
     parses = [cw.parse_text(md) for md in EXAMPLES]
     assert all(set(p) == set(table) - {"decl"} for p in parses)
-    first = {k: next(p[k][0] for p in parses if p[k]) for k in ("nodes", "entities", "edges", "discarded", "findings")}
+    first = {k: next(p[k][0] for p in parses if p[k]) for k in ("nodes", "entities", "edges", "discarded", "routes", "findings")}
     first["decl"] = first["nodes"]["in"][0]
     first["warnings"] = cw.graph_warnings("## Notes\n")[0]
     assert {k: set(v) for k, v in first.items()} == want

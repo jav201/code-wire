@@ -20,7 +20,7 @@ There are two directions.
 **Forward (PDR → DDR): the graph first, the code after.**
 
 1. Write the requirements with ids, for example `R-1`.
-2. Write the graph in format B (`## Nodes`, `## Entities`, `## Edges`). Use `examples/logtool-graph.md` as a model. For a slice of the application, add `## Boundary` with the callers and consumers outside it (`docs/Texto-Canonico.md` §7).
+2. Write the graph in format B (`## Nodes`, `## Entities`, `## Edges`). Use `examples/logtool-graph.md` as a model. For a slice of the application, add `## Boundary` with the callers and consumers outside it (`docs/Texto-Canonico.md` §7). Add `## Routes` with the entry points (`docs/Metodologia.md` §3.8).
 3. Check coherence: apply the rules of the PDR gate (`docs/Metodologia.md` §8).
 4. Write each node as a stub with its mark `# node: <name>  [<req>]`. The stub returns the output of its example.
 5. Implement the nodes.
@@ -45,13 +45,13 @@ The tools are Python 3 with the standard library only. Run them from the root of
 | `tools/codewire_events.py` | The event log of the recorder: each call with its root (the entry point that started it, or `harness`), its parent and a hash of its values | the plugin writes `cw-events.jsonl` (`CW_EVENTS`); `python tools/codewire_events.py report <log>` gives the matrix, the variants and the examples of each root; `… diff <a> <b>` gives the first step that differs |
 | `tools/cw_textual.py` | An adapter for Textual apps: the root and the parent cross messages, dialogs, workers and later calls; each event gets the screen state (`ui`) | `CW_ADAPTERS=textual`, and `CW_UI=#status` for the text of widgets |
 | `tools/cw_record_run.py` | Records a script (a probe), not only a pytest run; a printed line can set the step | `python tools/cw_record_run.py --graph <graph.md> --path <code> --adapters textual --step-regex "^== (U\d+\.\d+)" probe.py` |
-| `tools/codewire_examples.py` | Checks the `examples:` lines against a recording (C16) | `python tools/codewire_examples.py --graph <graph.md> --trace <id>=trace.json --out report.md` |
-| `tools/codewire_lint.py` | Reads a graph text in full, lists the warnings of the grammar (G1 to G7) and can write the parse as JSON | `python tools/codewire_lint.py <graph.md> [--json parse.json]` |
-| `tools/codewire_coherence.py` | Checks C2, C3, C4, C7 and C10 with the v2.6 syntax (`## Boundary`, caller edges, `when:` with an output) | `python tools/codewire_coherence.py --graph <graph.md> [--trace <id>=trace.json] --out report.md` |
+| `tools/codewire_examples.py` | Checks the `examples:` lines against a recording (C16): also a root, `expect none` and the `offers:` of an `[Interface]` entity | `python tools/codewire_examples.py --graph <graph.md> --trace <id>=trace.json --out report.md` |
+| `tools/codewire_lint.py` | Reads a graph text in full, lists the warnings of the grammar (G1 to G12) and can write the parse as JSON | `python tools/codewire_lint.py <graph.md> [--json parse.json]` |
+| `tools/codewire_coherence.py` | Checks C2, C3, C4, C7 and C10 with the v2.6 syntax (`## Boundary`, caller edges, `when:` with an output). It also lists the readers and writers of each field of an entity (`[Data: X].field`) | `python tools/codewire_coherence.py --graph <graph.md> [--trace <id>=trace.json] --out report.md` |
 | `tools/codewire_ste.py` | Checks the English text against the language rules (C17) | `python tools/codewire_ste.py <file.md> --glossary docs/Language-STE.md` |
 | `tools/codewire_inventory.py` | Lists the functions of a repository that can be nodes, by flow | `python tools/codewire_inventory.py --repo <repo> --out <file>` |
 
-Tests: `python -m pytest tests` (128 tests).
+Tests: `python -m pytest tests` (164 tests).
 
 In the report of `codewire_examples.py`, `ok` means that the line has an anchor and that the anchor is in the recording. A line with no anchor gets `no_anchor`. A node with no code yet gets `no_def`, because the recorder skips it and lists it in `_skipped`. A bare number gets a warning, because the check does not compare it. The report also gives the status of each node: NEW, CHANGED or SHIPPED.
 

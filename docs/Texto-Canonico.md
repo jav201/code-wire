@@ -1,6 +1,6 @@
 # Code-Wire — canonical text and visual view (proposal Q26, 2026-10-17)
 
-> Status: **decided 2026-10-18** (Q26, questionnaire on the page): C14, format B, no `**`, new fields, no ASCII overview in the source. Notation for optional: `X?` (Q27, decided 2026-10-18). Applied in `Metodologia.md` v2.4. It comes from Q19b: «In Excalidraw these diagrams are fascinating… but they must also exist only as text, for LLMs to read. In text the color is lost; I need that part reconciled». v2.6 (2026-10-21): the section `## Boundary` (§7) and the layer catalog (§8). 2026-10-23: the full form of each line is in `Notation-Grammar.md`. The Spanish originals of the quotes are in the project vault, not in this repository.
+> Status: **decided 2026-10-18** (Q26, questionnaire on the page): C14, format B, no `**`, new fields, no ASCII overview in the source. Notation for optional: `X?` (Q27, decided 2026-10-18). Applied in `Metodologia.md` v2.4. It comes from Q19b: «In Excalidraw these diagrams are fascinating… but they must also exist only as text, for LLMs to read. In text the color is lost; I need that part reconciled». v2.6 (2026-10-21): the section `## Boundary` (§7) and the layer catalog (§8). 2026-10-23: the full form of each line is in `Notation-Grammar.md`. A3 (2026-10-25): the fields that come from the recordings (§9). The Spanish originals of the quotes are in the project vault, not in this repository.
 
 ## 1. Proposed principle
 **The text is the source; the diagram is a view**. Each thing that the diagram shows with color, line weight, line style or position **comes from a field of the text**. No information exists only in the drawing.
@@ -164,3 +164,18 @@ A layer adds information to a view for one moment of the life cycle. Each layer 
 Two codes are not the first choice, because a base code already used them. L1 is teal, because the amber band is the `(Callable)` code. L9 is a pink label, because a thick border is "the write that wins" in a `sequence:` strip.
 
 A layer from a run (L7, L10, L11) gives the commit and the tests of that run in the legend. The presets are in `Metodologia.md` §4.
+
+## 9. Fields from the recordings (A3, 2026-10-25)
+Parts 38 to 51 tried the event log on the real code of app. A3 puts what they taught into format B. Each field is optional, so an older graph still parses. Each field is text first: a tool reads it, and a check uses it. No field has a visual code yet. Diagram 16, the reference of the notation, shows them.
+
+| Field | Where | What a tool reads (`Notation-Grammar.md` §8) | Check | Cost on a real graph |
+|---|---|---|---|---|
+| `## Routes` (`route:`, `entry:`, `desc:`) | a section | `routes`: `name`, `entries`, `desc` | lint G8 | 4 routes and 7 roots on F1: +82 tokens |
+| `root <code name>` | the source of an example line | `example_source`: `thread`, `step`, `root`, `marker` | C16 with the calls of that root | (with the routes) |
+| `→ expect none` | an example line | the line | C16: no call of the node in the step | 2 offers and 1 line on the UI graph: +92 tokens |
+| `offers: (source) "control" → node` | an `[Interface]` entity | `offers`: `source`, `control`, `node` | lint G9; C16: the node ran in the step | (with expect none) |
+| `volatile:` | a node | `volatile`: a list of items | lint G10; the recorder masks the items before the hash | 2 lines and 2 `oracle:` lines on F1: +46 tokens |
+| `oracle:` | a node | `oracle`: a list of lines | lint G11 | (with volatile) |
+| `[Data: X].field` | an end of an edge | `field` on each end | lint G12; the view of the fields (coherence) | 2 edges on F6: +4 tokens |
+
+The cost is characters divided by 4, on a copy of the graph. It is an estimate, not a count of a tokenizer.

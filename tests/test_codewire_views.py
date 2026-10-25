@@ -58,7 +58,7 @@ def cw_u1_run(tmp_path=None):
     app.action_load_project()
     events.step("U2.6")
     handle_load_project("P1")            # the tests call the handler directly
-    return sorted(events.EVENTS, key=lambda e: e["seq"])
+    return sorted(events.calls_of(events.EVENTS), key=lambda e: e["seq"])
 
 
 def test_examples_are_kept_for_each_root():
