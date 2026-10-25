@@ -9,7 +9,6 @@ Status: draft v2.6, an exploration. The method had one pilot on a real Python ap
 1. `docs/Metodologia.md`: the method. Read §1–§8 before you write a graph. §10 has a full small example.
 2. `docs/Texto-Canonico.md`: the text format of a graph (format B). The text is the source, and a diagram is only a view (rule C14).
 3. `docs/Notation-Grammar.md`: the full form of each line of format B, with examples and the warnings of the tools.
-4. `docs/Language-STE.md`: the language rules for the English text of a graph (rule C17).
 
 The documents refer to evidence of the pilot, for example `evidence/...`. That evidence is not in this repository.
 
@@ -47,19 +46,14 @@ The tools are Python 3 with the standard library only. Run them from the root of
 | `tools/cw_record_run.py` | Records a script (a probe), not only a pytest run; a printed line can set the step | `python tools/cw_record_run.py --graph <graph.md> --path <code> --adapters textual --step-regex "^== (U\d+\.\d+)" probe.py` |
 | `tools/codewire_examples.py` | Checks the `examples:` lines against a recording (C16): also a root, `expect none` and the `offers:` of an `[Interface]` entity | `python tools/codewire_examples.py --graph <graph.md> --trace <id>=trace.json --out report.md` |
 | `tools/codewire_lint.py` | Reads a graph text in full, lists the warnings of the grammar (G1 to G12) and can write the parse as JSON | `python tools/codewire_lint.py <graph.md> [--json parse.json]` |
-| `tools/codewire_coherence.py` | Checks C2, C3, C4, C7 and C10 with the v2.6 syntax (`## Boundary`, caller edges, `when:` with an output). It also lists the readers and writers of each field of an entity (`[Data: X].field`) | `python tools/codewire_coherence.py --graph <graph.md> [--trace <id>=trace.json] --out report.md` |
-| `tools/codewire_ste.py` | Checks the English text against the language rules (C17) | `python tools/codewire_ste.py <file.md> --glossary docs/Language-STE.md` |
-| `tools/codewire_inventory.py` | Lists the functions of a repository that can be nodes, by flow | `python tools/codewire_inventory.py --repo <repo> --out <file>` |
 
 Tests: `python -m pytest tests` (172 tests).
 
 In the report of `codewire_examples.py`, `ok` means that the line has an anchor and that the anchor is in the recording. A line with no anchor gets `no_anchor`. A node with no code yet gets `no_def`, because the recorder skips it and lists it in `_skipped`. A bare number gets a warning, because the check does not compare it. The report also gives the status of each node: NEW, CHANGED or SHIPPED.
 
-With `--trace`, the report of `codewire_coherence.py` gives the status of the node of each open item. Then you can see the C2 items of the PDR gate: the items of the NEW and CHANGED nodes.
 
 ## Known limits
 
-- `codewire_inventory.py` has the settings of the pilot application: `PACKAGE`, `APP_CLASS` and `FLOWS`. For a different repository, change these settings first.
 - The tools read Python code only.
 - The node status comes from a recording: the recorder skips a node with no def. With no recording, the tools do not give the status.
 - The questions and the verdicts behind the method (`Open-Questions.md`) are not in this repository. They are in the project vault, in English.
