@@ -10,13 +10,13 @@ Each `ejemplos:` line names its thread, e.g. `(AC-1) ...`. For a thread with a r
 Quoted text of 1 or 2 characters (`"ok"`) must equal a whole recorded string, not a part of one.
     `6`             a decimal number in backticks -> compared as an integer (v2.6)
     `30.0`          a float in backticks -> compared with a tolerance (A1)
-Prose around the anchors is not checked. A line marked «inferred» or «synthetic» is not observed: skipped.
+Prose around the anchors is not checked. A line marked `unrecorded` in its source has no recording yet: it is counted, not checked.
 A line with no anchor is `no_anchor`, not `ok`. A node that the recorder skipped (no def yet) is `no_def`.
 v2.6: a bare number (not in backticks, quotes or parentheses) gets a warning, because the check does not
 compare it. A1: a recorded string matches in its own form, and also with each backslash as `/`:
 a Windows path matches, and so does a Markdown escape before a dot. A text anchor and a recorded
-string are compared with each run of spaces as one space. The report also gives the status of each
-node: NEW (the recorder skipped it: no def), CHANGED (a def and at least one `synthetic` line) or SHIPPED.
+string are compared with each run of spaces as one space. The report starts with the count of the lines
+that no recording backs: a line with no recorded run of its thread, or a line marked `unrecorded`.
 A3a: a line whose source names its root (`(U2, U2.4, root TuiApp.on_button_pressed)`) compares only with
 the recorded calls of that root; with no such call, the line is `root_not_run`.
 
@@ -51,8 +51,7 @@ def near(a, b):
     return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-9)
 
 
-SYNTHETIC = re.compile(r"\bsynthetic\b")
-INFERRED = re.compile(r"\binferred\b")
+UNRECORDED = re.compile(r"\bunrecorded\b")
 PAIR = re.compile(r"(0x[0-9A-Fa-f]+)\]?\s*[:=]\s*(0x[0-9A-Fa-f]+)\b")
 
 
@@ -154,10 +153,12 @@ def check(graph_nodes, traces):
             src = cw.example_source(line)
             thread = src["thread"] or "?"
             bare = bare_numbers(line)
-            if thread not in traces:
+            if src["marker"] == "unrecorded" and src["thread"] is None:
+                rows.append((node["name"], "-", "unrecorded", "marked: no recording backs it yet", bare))
+            elif thread not in traces:
                 rows.append((node["name"], thread, "no_trace", "no recorded run for this thread", bare))
-            elif SYNTHETIC.search(line[:60]) or INFERRED.search(line[:60]):
-                rows.append((node["name"], thread, "not_observed", "marked as not observed in the run", bare))
+            elif src["marker"] == "unrecorded" or UNRECORDED.search(line[:60]):
+                rows.append((node["name"], thread, "unrecorded", "marked: no recording backs it yet", bare))
             elif EXPECT_NONE.search(line):
                 rows.append((node["name"], thread, *expect_none(traces[thread], node["name"], src), bare))
             elif node["name"] in traces[thread].get("_skipped", []):
@@ -225,45 +226,23 @@ def check_offers(entities, traces):
     return rows
 
 
-def node_status(graph_nodes, traces):
-    """{node: (status, reason)} from the markers and the marks (Metodologia §3.1, rule 9).
-    The recorder skips a node with no def, so the `_skipped` lists of the traces give NEW."""
-    if not traces:
-        return {}
-    skipped = {n for t in traces.values() for n in t.get("_skipped", [])}
-    status = {}
-    for node in graph_nodes:
-        synthetic = [e for e in node["examples"] if SYNTHETIC.search(e[:60])]
-        if node["name"] in skipped:
-            status[node["name"]] = ("NEW", "no def in the code")
-        elif synthetic:
-            status[node["name"]] = ("CHANGED", f"a def and {len(synthetic)} `synthetic` line(s)")
-        else:
-            status[node["name"]] = ("SHIPPED", "a def and no `synthetic` line")
-    return status
-
-
-def render(rows, traces, status=None, offers=()):
+def render(rows, traces, offers=()):
     count = {s: sum(1 for r in rows if r[2] == s)
-             for s in ("ok", "drift", "root_not_run", "step_not_run", "not_checkable", "no_anchor", "node_not_run", "no_def", "not_observed", "no_trace")}
+             for s in ("ok", "drift", "root_not_run", "step_not_run", "not_checkable", "no_anchor", "node_not_run", "no_def", "unrecorded", "no_trace")}
     warned = [r for r in rows if r[4]]
+    no_rec = count["no_trace"] + count["unrecorded"]
     out = ["# Code-Wire examples check", "",
+           f"- **Lines that no recording backs: {no_rec} of {len(rows)}** "
+           f"(no recorded run of the thread {count['no_trace']}, marked `unrecorded` {count['unrecorded']})",
            f"- Threads with a recorded run: {', '.join(sorted(traces)) or 'none'}",
-           f"- Example lines: {len(rows)} · ok {count['ok']} · drift {count['drift']} · root not run {count['root_not_run']} · step not run {count['step_not_run']} · not checkable {count['not_checkable']} · no anchor {count['no_anchor']}"
-           f" · node not run {count['node_not_run']} · no def {count['no_def']} · not observed {count['not_observed']}"
-           f" · no trace {count['no_trace']}",
+           f"- Checked lines: ok {count['ok']} · drift {count['drift']} · root not run {count['root_not_run']} · step not run {count['step_not_run']} · not checkable {count['not_checkable']} · no anchor {count['no_anchor']}"
+           f" · node not run {count['node_not_run']} · no def {count['no_def']}",
            f"- Lines with a bare number (a warning: the check does not compare it): {len(warned)}", "",
            "| node | thread | status | detail | bare numbers |", "|---|---|---|---|---|"]
     out += [f"| `{n}` | {t} | {s} | {d} | {', '.join(b)} |" for n, t, s, d, b in rows]
     if offers:
-        out += ["", "## Offers (A3b)", "", "| entity | control | node | thread | status | detail |", "|---|---|---|---|---|---|"]
+        out += ["", "## Offers", "", "| entity | control | node | thread | status | detail |", "|---|---|---|---|---|---|"]
         out += [f"| `{e}` | \"{c}\" | `{n}` | {t} | {s} | {d} |" for e, c, n, t, s, d in offers]
-    if status:
-        kinds = ("NEW", "CHANGED", "SHIPPED")
-        out += ["", "## Node status", "",
-                " · ".join(f"{k} {sum(1 for v in status.values() if v[0] == k)}" for k in kinds), "",
-                "| node | status | why |", "|---|---|---|"]
-        out += [f"| `{n}` | {s} | {w} |" for n, (s, w) in sorted(status.items(), key=lambda x: (kinds.index(x[1][0]), x[0]))]
     return "\n".join(out) + "\n"
 
 
@@ -286,10 +265,11 @@ def main(argv=None):
             traces[name] = json.loads(Path(path).read_text(encoding="utf-8"))
     rows = check(nodes, traces)
     offers = check_offers(entities, traces)
-    a.out.write_text(render(rows, traces, node_status(nodes, traces), offers), encoding="utf-8")
+    a.out.write_text(render(rows, traces, offers), encoding="utf-8")
     drift = sum(1 for r in rows if r[2] in FAILS)   # a line on a root or a step that never ran does not hold
     broken = sum(1 for r in offers if r[4] in FAILS)
-    print(f"{len(rows)} example lines, {drift} drift; {len(offers)} offers, {broken} not kept -> {a.out}")
+    no_rec = sum(1 for r in rows if r[2] in ("no_trace", "unrecorded"))
+    print(f"{len(rows)} example lines, {no_rec} with no recording, {drift} drift; {len(offers)} offers, {broken} not kept -> {a.out}")
     return 1 if drift or broken else 0
 
 

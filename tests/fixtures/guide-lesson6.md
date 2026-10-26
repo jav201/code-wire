@@ -9,7 +9,6 @@ out: str report
 func: reads the log and writes the report line
 examples: (T-5) path "logs/app.log" → report "ALARM: 1 entries of kind A"
 module: logtool/report.py
-inner: read_lines, count_kinds, has_alarm, alarm_text, summary_text
 
 read_lines
 req: R-2
@@ -126,20 +125,16 @@ when: has_alarm.alarm is False
 alarm_text.text ──▶ make_report
 summary_text.text ──▶ make_report
 [I/O: log file] ──▶ read_lines.path
-read_lines.lines ──▶ [1→N] LogStore.push_line.line
+read_lines.lines ──▶ LogStore.push_line.line
 read_lines.lines ──▶ LogStore.load.lines
 LogStore.push_line ──▶ entry_kind.line
 entry_kind.kind ──▶ LogStore.push_line
 LogStore.load ──▶ entry_kind.line
 entry_kind.kind ──▶ LogStore.load
 [Data: LogStore.stack_a] ──▶ write_alarms.alarms
-
-## Boundary
-
 [Outside: command line] ──▶ make_report.path
 make_report.report ──▶ [Outside: screen]
 [Outside: logOpen event] ──▶ LogStore.clear
-discarded: write_alarms.count — the two events do not show the count
 
 ## Findings
 

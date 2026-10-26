@@ -1,10 +1,9 @@
-"""Code-Wire lint: read one graph text (format B) in full and list the warnings of `docs/Notation-Grammar.md` §9.
+"""Code-Wire lint: list the lines of a graph text (format B) that the parser does not read.
 
 Usage: python codewire_lint.py GRAPH.md [--json parse.json]
 
-Prints one line for each warning (`file:line: code text`). With `--json`, writes the full parse in the
-shape of Notation-Grammar.md §8. A warning does not stop the lint: the tools skip that line.
-Exit code 1 only when the lint cannot read a block (G7) or the text has no node. Stdlib only.
+A tool skips such a line with no word, so each one is an error: exit code 1. With `--json`, it also
+writes the full parse (Notation-Grammar.md). Stdlib only.
 """
 import argparse
 import json
@@ -24,14 +23,13 @@ def main(argv=None):
     parse = cw.parse_text(a.graph.read_text(encoding="utf-8"))
     if a.json:
         a.json.write_text(json.dumps(parse, indent=2, ensure_ascii=False), encoding="utf-8")
-    for w in parse["warnings"]:
-        print(f"{a.graph}:{w['line']}: {w['code']} {w['text']}")
-    unread = sum(w["code"] == "G7" for w in parse["warnings"])
+    for w in parse["unread"]:
+        print(f"{a.graph}:{w['line']}: not read: {w['text']}")
     print(f"nodes={len(parse['nodes'])} entities={len(parse['entities'])} edges={len(parse['edges'])} "
-          f"findings={len(parse['findings'])} warnings={len(parse['warnings'])} unread blocks={unread}")
+          f"findings={len(parse['findings'])} not read={len(parse['unread'])}")
     if not parse["nodes"]:
-        print("no node: the text has no block in `## Nodes` that the lint can read")
-    return 1 if unread or not parse["nodes"] else 0
+        print("no node: the text has no block in `## Nodes` that the parser can read")
+    return 1 if parse["unread"] or not parse["nodes"] else 0
 
 
 if __name__ == "__main__":

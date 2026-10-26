@@ -9,7 +9,6 @@ out: str report
 func: reads the log and writes the report line
 examples: (T-5) path "logs/app.log" → report "ALARM: 1 entries of kind A"
 module: logtool/report.py
-inner: read_lines, count_kinds, has_alarm, alarm_text, summary_text
 
 read_lines
 req: R-2
@@ -72,8 +71,5 @@ count_kinds.counts ──▶ summary_text.counts
 when: has_alarm.alarm is False
 alarm_text.text ──▶ make_report
 summary_text.text ──▶ make_report
-
-## Boundary
-
 [Outside: command line] ──▶ make_report.path
 make_report.report ──▶ [Outside: screen]

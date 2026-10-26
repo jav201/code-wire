@@ -1,10 +1,10 @@
-"""Tests for the Code-Wire DDR extractor (format B + C15/O2 lifting).
+"""Tests for the Code-Wire extractor (format B, marks, signatures, the real calls).
 
-Why these matter: the DDR loop is only as good as (1) binding a mark to the def it names,
-(2) reading the canonical text the methodology actually uses (format B, v2.4), (3) reporting
-drift when code and graph disagree, and (4) C15: a call between marked nodes that the graph
-does not declare must surface as divergence, even when it goes through an unmarked helper.
-A silent pass on (3) or (4) would make the review useless: the pilot's H-1 is exactly such a call.
+Why these matter: the link between the graph and the code is only as good as (1) binding a mark to the
+def it names, (2) reading the graph text, (3) reporting drift when the code and the contract of a node
+disagree (the `Worker` output of A3e3 is such a drift), and (4) listing the real calls between marked
+nodes, also through an unmarked helper. In the app data audit, that list showed that the verify step
+calls the same reader as the load: a shared oracle that no other check saw.
 """
 import sys
 import textwrap
@@ -70,7 +70,6 @@ GRAPH = textwrap.dedent('''
     in: str path; (Callable) list[int]->list[int] dedupe; dict? extra; str mode = "slow"
     out: tuple(list[int] values, str? note)
     module: mod.py
-    inner: check, ghost
 
     Box.size
     req: to trace
@@ -93,7 +92,7 @@ GRAPH = textwrap.dedent('''
 
     [I/O: file] ──▶ Box.__init__.path
     Box.__init__.box ──▶ Box.size.self
-    load.values ──▶ [1→N] check.path
+    load.values ──▶ check.path
     when: limit > 0
     check.nope ──▶ nowhere.x
 
@@ -117,8 +116,8 @@ def _run(tmp_path):
     nodes = cw.parse_graph(GRAPH)
     edges = cw.parse_edges(GRAPH, [n["name"] for n in nodes])
     lifted, top_level, _ = cw.lift_calls(parsed, marks)
-    findings, c15 = cw.diff(marks, nodes, edges, lifted, top_level)
-    return findings, c15, lifted, top_level
+    findings, calls = cw.diff(marks, nodes, lifted, top_level)
+    return findings, calls, lifted, top_level
 
 
 def _has(findings, kind, text=""):
@@ -148,28 +147,26 @@ def test_format_b_node_parse():
     ]
     assert load["out"] == {"type": "tuple[list[int], Optional[str]]", "names": ["values", "note"],
                            "raw": "tuple(list[int] values, str? note)"}
-    assert load["inner"] == ["check", "ghost"]
     assert nodes["Box.__init__"]["in"][1]["type"] == "Optional[str]"  # `X?` (Q27)
     assert nodes["Box.size"]["in"][0]["kind"] == "self" and nodes["Box.size"]["reqs"] == []
     assert nodes["Box.size"]["out"]["names"] == ["n"]  # `{keys}` stripped
     assert nodes["ghost"]["reqs"] is None and nodes["ghost"]["in"][0]["kind"] == "untyped"
 
 
-def test_edges_parse_when_quantifier_and_unknown_ends():
+def test_edges_parse_when_and_unknown_ends():
     nodes = [n["name"] for n in cw.parse_graph(GRAPH)]
     edges = cw.parse_edges(GRAPH, nodes)
     assert len(edges) == 4
     assert edges[0]["src"]["entity"] == "[I/O: file]" and edges[0]["dst"] == {"entity": None, "field": None, "node": "Box.__init__", "port": "path"}
-    assert edges[2]["dst"]["node"] == "check" and edges[2]["dst"]["port"] == "path"  # [1→N] dropped
+    assert edges[2]["dst"]["node"] == "check" and edges[2]["dst"]["port"] == "path"
     assert edges[2]["when"] == "limit > 0" and edges[1]["when"] is None
     assert edges[3]["dst"]["unknown"] == "nowhere.x"
 
 
 def test_deliberate_mismatches_are_reported(tmp_path):
     findings, *_ = _run(tmp_path)
-    # load: mark [R-2, R-3] vs graph R-2; graph has `dedupe`, `extra` the code lacks; code has `limit`;
-    # `mode` default differs; graph returns a tuple, code a list.
-    assert _has(findings, "req_mismatch", "R-3")
+    # load: graph has `dedupe`, `extra` the code lacks; code has `limit`; `mode` default differs;
+    # graph returns a tuple, code a list.
     assert _has(findings, "input_missing_in_code", "`dedupe`")
     assert _has(findings, "input_missing_in_code", "`extra`")
     assert _has(findings, "input_missing_in_graph", "`limit: int`")
@@ -177,35 +174,20 @@ def test_deliberate_mismatches_are_reported(tmp_path):
     assert _has(findings, "output_type_mismatch", "list[int]")
     assert _has(findings, "module_mismatch", "other.py")  # check lives in mod.py
     assert _has(findings, "graph_node_without_mark", "`ghost`")
-    assert _has(findings, "edge_unknown_port", "`nope`")
-    assert _has(findings, "edge_unknown_endpoint", "`nowhere.x`")
     # Box.__init__ agrees with the graph, `X?` and `= None` included: no drift against it.
     assert not [f for f in findings if f["where"] == "mod.py:5" and not f["kind"].startswith("info_")]
 
 
-def test_c15_lifts_through_unmarked_helper_and_flags_undeclared_call(tmp_path):
-    findings, c15, lifted, top_level = _run(tmp_path)
-    # load -> _helper (unmarked) -> Box(...): lifted to load -> Box.__init__, not declared -> divergence
+def test_the_real_calls_are_listed_also_through_an_unmarked_helper(tmp_path):
+    findings, calls, lifted, top_level = _run(tmp_path)
+    # load -> _helper (unmarked) -> Box(...): lifted to load -> Box.__init__
     assert ("load", "Box.__init__") in lifted
-    assert _has(findings, "c15_divergence", "`load` → `Box.__init__`")
-    # load -> check is in `inner:` -> converges
-    assert {"caller": "load", "callee": "check", "sites": lifted[("load", "check")], "declared_via": "inner"} in c15
-    # `ghost` declared in inner but never called -> absence (info, not drift)
-    assert _has(findings, "info_c15_absence", "`ghost`")
+    assert {"caller": "load", "callee": "Box.__init__", "sites": lifted[("load", "Box.__init__")]} in calls
+    assert {"caller": "load", "callee": "check", "sites": lifted[("load", "check")]} in calls
+    # a call is a fact of the code, not a finding: the graph does not have to declare it
+    assert not [f for f in findings if "c15" in f["kind"]]
     # run() has no marked node above -> top level; super().__init__ is not a construction of Box
     assert top_level["load"] and "Box.__init__" not in top_level
-
-
-def test_c15_edge_counts_as_declaration(tmp_path):
-    graph = GRAPH.replace("load.values ──▶ [1→N] check.path", "load.values ──▶ Box.__init__.path")
-    graph = graph.replace("inner: check, ghost", "inner: check")
-    parsed = _parsed(tmp_path)
-    marks = cw.extract_marks(parsed)
-    nodes = cw.parse_graph(graph)
-    lifted, top, _ = cw.lift_calls(parsed, marks)
-    findings, c15 = cw.diff(marks, nodes, cw.parse_edges(graph, [n["name"] for n in nodes]), lifted, top)
-    assert not _has(findings, "c15_divergence")
-    assert any(c["callee"] == "Box.__init__" and c["declared_via"] == "edge" for c in c15)
 
 
 def test_type_normalisation_levels():
@@ -219,7 +201,7 @@ def test_type_normalisation_levels():
 def test_mark_naming_a_different_def_is_reported(tmp_path):
     (tmp_path / "m.py").write_text("class A:\n    # node: A.renamed  []\n    def run(self) -> None:\n        pass\n", encoding="utf-8")
     parsed, _ = cw.parse_files(tmp_path)
-    findings, _ = cw.diff(cw.extract_marks(parsed), [], [], {}, {})
+    findings, _ = cw.diff(cw.extract_marks(parsed), [], {}, {})
     assert _has(findings, "mark_name_ne_qualname", "`A.run`")
     assert _has(findings, "mark_without_graph_node")
 
@@ -254,14 +236,12 @@ GRAPH_Q28 = textwrap.dedent('''
 ''')
 
 
-def test_q28_modify_targets_inputs_or_entities():
-    # Q28 (B): `modify:` may name an input of the node (mutated in place) or a declared entity;
-    # anything else breaks C10 and must be reported, or a typo in the effect would pass silently.
-    nodes, edges, entities, conflicts = cw.load_graphs([GRAPH_Q28])
+def test_modify_targets_keep_their_order_and_lose_the_kind():
+    # `modify:` names an input of the node (changed in place) or an entity; the recorder keeps the input
+    # after the call, and an entity of the own class (A2g)
+    nodes, _, _, _ = cw.load_graphs([GRAPH_Q28])
     assert nodes[0]["modify"] == ["mem_map", "document.entries[].status", "[I/O: out]", "ghost_input", "[Data: nowhere]"]
-    findings, _ = cw.diff([], nodes, edges, {}, {}, entities, conflicts)
-    bad = sorted(f["msg"].split("`")[1] for f in findings if f["kind"] == "modify_unknown_target")
-    assert bad == ["[Data: nowhere]", "ghost_input"]
+    assert nodes[0]["assign"] == ["replace", "replace", "replace", "append", "clear"]
 
 
 def test_optional_callable_notation():
@@ -275,6 +255,14 @@ def test_two_graph_files_merge_and_report_conflicts():
     nodes, _, entities, conflicts = cw.load_graphs([GRAPH_Q28, GRAPH, other])
     assert {n["name"] for n in nodes} >= {"patch", "load", "Box.__init__"}
     assert conflicts == ["patch"] and "[I/O: out]" in entities and "[I/O: file]" in entities
+
+
+def test_another_req_in_a_second_graph_file_is_a_conflict():
+    # part 60: F1 named requirements and two pilot graphs said `to trace` for the same nodes; the first file
+    # won with no word, and the order of the files changed the report. Now it is a conflict.
+    other = GRAPH_Q28.replace("req: R-9", "req: to trace")
+    _, _, _, conflicts = cw.load_graphs([GRAPH_Q28, other])
+    assert conflicts == ["patch"]
 
 
 def test_out_none_is_a_type_not_a_name():
@@ -333,12 +321,20 @@ def test_c15_lifts_through_a_closure_and_a_function_passed_as_a_value(tmp_path):
     assert ("unrelated", "run_flow") not in lifted                  # a parameter with the same name is not a ref
 
 
-def test_boundary_section_gives_outside_items_and_discarded_outputs():
-    # v2.6 §3.7: the callers outside a flow slice are edges from `[Outside: …]` items
-    g = GRAPH + "\n## Boundary\n\n[Outside: key press] ──▶ Box.__init__\ndiscarded: Box.size.n — nothing reads it\n"
-    nodes, edges, entities, _ = cw.load_graphs([g])
-    outer = [e for e in edges if e["boundary"]]
-    assert len(outer) == 1 and outer[0]["src"]["entity"] == "[Outside: key press]"
-    assert outer[0]["dst"]["node"] == "Box.__init__" and "[Outside: key press]" in entities
-    assert all(not e["boundary"] for e in edges if e is not outer[0])
-    assert cw.parse_discarded(g) == [{"port": "Box.size.n", "reason": "nothing reads it"}]
+def test_a_section_that_is_gone_is_a_line_not_read():
+    # `## Boundary` and `## Routes` left the notation (part 64); a graph that still has one hears it
+    g = GRAPH + "\n## Boundary\n\n[Outside: key press] ──▶ Box.__init__\n"
+    assert [u["text"] for u in cw.unread(g) if u["text"].startswith("section")] == ["section `Boundary`"]
+
+
+def test_path_keeps_only_the_marks_of_one_slice(tmp_path):
+    # second-project M-13: the extractor read the whole repository, and the marks of other batches were findings
+    (tmp_path / "mod.py").write_text(CODE, encoding="utf-8")
+    (tmp_path / "other").mkdir()
+    (tmp_path / "other" / "x.py").write_text("# node: stray  []\ndef stray() -> None:\n    pass\n", encoding="utf-8")
+    g = tmp_path / "g.md"
+    g.write_text(GRAPH, encoding="utf-8")
+    for extra, want in (([], True), (["--path", "mod.py"], False)):
+        out = tmp_path / ("out" + str(len(extra)))
+        cw.main(["--repo", str(tmp_path), "--graph", str(g), "--out", str(out), *extra])
+        assert ("`stray`" in (out / "diff-report.md").read_text(encoding="utf-8")) is want

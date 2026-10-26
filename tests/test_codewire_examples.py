@@ -2,8 +2,8 @@
 
 Why these matter: an `examples:` line is only useful if it stays true. The check must (1) flag a
 literal value the code no longer produces, (2) not flag the same value written another way
-(0x1000 vs 4096, `/` vs `\\` paths, an elided path), (3) skip what the line itself says was not
-observed, and (4) see the value a node leaves in an input it modifies (Q28), which is where the
+(0x1000 vs 4096, `/` vs `\\` paths, an elided path), (3) count, and not check, a line that says
+that no recording backs it, and (4) see the value a node leaves in an input it modifies (Q28), which is where the
 pilot's mistake was. A check that passes on a changed value would make the thread decorative.
 """
 import sys
@@ -39,11 +39,11 @@ def test_changed_text_is_drift():
     assert rows[0][2] == "drift"
 
 
-def test_thread_tag_is_not_an_anchor_and_unobserved_lines_are_skipped():
+def test_thread_tag_is_not_an_anchor_and_unrecorded_lines_are_counted():
     traces = {"AC-1": {"load": [CALL]}}
-    rows = ce.check([node("load", "(AC-1, inferred) → 0xFFFF"), node("other", "(AC-1) → 0x1000"),
+    rows = ce.check([node("load", "(AC-1, unrecorded) → 0xFFFF"), node("other", "(AC-1) → 0x1000"),
                      node("load", "(case_03) → 0x1000")], traces)
-    assert [r[2] for r in rows] == ["not_observed", "node_not_run", "no_trace"]
+    assert [r[2] for r in rows] == ["unrecorded", "node_not_run", "no_trace"]
 
 
 def test_best_call_wins():
@@ -135,13 +135,13 @@ def test_bare_number_gets_a_warning_and_a_count_in_parentheses_does_not():
     assert rows[0][4] == ["6"] and "bare number" in ce.render(rows, {"AC-1": {}})
 
 
-def test_node_status_comes_from_the_markers_and_the_marks():
-    # M-1: a node that keeps its signature but changes its behaviour must show as CHANGED
-    nodes = [node("new_step", "(AC-1, synthetic) x → y"), node("changed", "(AC-1) → 0x1", "(AT-2, synthetic) → 0x2"),
-             node("shipped", "(AC-1) → 0x1", "(AC-1, inferred) → 0x3")]
-    status = ce.node_status(nodes, {"AC-1": {"_skipped": ["new_step"]}})
-    assert {n: s for n, (s, _) in status.items()} == {"new_step": "NEW", "changed": "CHANGED", "shipped": "SHIPPED"}
-    assert "NEW 1 · CHANGED 1 · SHIPPED 1" in ce.render([], {"AC-1": {}}, status)
+def test_the_report_starts_with_the_lines_that_no_recording_backs():
+    # second-project batches 006 and 009 ran no recording: every line stayed plausible and not checked, and every gate
+    # was green. The count of such lines is the first fact of the report, so it cannot hide.
+    rows = ce.check([node("load", "(AC-1) → 0x1000"), node("load", "(AC-1, unrecorded) → 0x2"),
+                     node("load", "(case_03) → 0x1000")], {"AC-1": {"load": [CALL]}})
+    first = ce.render(rows, {"AC-1": {}}).splitlines()[2]
+    assert first.startswith("- **Lines that no recording backs: 2 of 3**")
 
 
 # A1, from the app audits of 2026-10-23 (data MF-3, MF-4; UI MF-2)

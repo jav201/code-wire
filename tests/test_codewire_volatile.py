@@ -78,10 +78,10 @@ def test_volatile_and_oracle_are_read():
     assert n["oracle"] == ['README.md, section "Load"', "the S-record format, srec(5)"]   # two lines, no G3
 
 
-def test_g10_and_g11_name_the_wrong_lines():
-    w = [(x["code"], x["text"]) for x in cw.graph_warnings(GRAPH)]
-    assert [c for c, _ in w] == ["G10", "G11"]       # `out.size` is good; two `oracle:` lines are good
-    assert "`when`" in w[0][1] and "bad_node" in w[1][1]
+def test_a_volatile_item_that_names_nothing_is_a_line_not_read():
+    # `volatile: when` names no input and no output: the recorder masks nothing for it, with no word
+    bad = [u["text"] for u in cw.unread(GRAPH)]
+    assert len(bad) == 1 and "volatile `when`" in bad[0]   # `out.size` is good; two `oracle:` lines are good
 
 
 def test_volatile_paths_of_a_node():

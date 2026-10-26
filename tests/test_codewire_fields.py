@@ -69,10 +69,10 @@ def test_the_field_is_kept_apart_from_the_entity():
     assert edges()[3]["dst"]["field"] is None      # an edge with no field
 
 
-def test_a_field_edge_gives_no_warning_and_a_bad_field_gives_g12():
-    assert cw.graph_warnings(GRAPH) == []          # also the finding anchor with a field (G6)
+def test_a_field_edge_is_read_and_a_bad_field_is_not():
+    assert cw.unread(GRAPH) == []
     bad = GRAPH.replace("[Data: App.focused].widget ──▶", "[Data: App.focused] widget ──▶")
     bad = bad.replace("].mem_map ──▶", "].1map ──▶")
-    w = [(x["code"], x["text"]) for x in cw.graph_warnings(bad)]
-    assert [c for c, _ in w] == ["G12", "G12"]
-    assert any("`widget` is not" in t for _, t in w) and any("`.1map` is not" in t for _, t in w)
+    w = [u["text"] for u in cw.unread(bad)]
+    assert len(w) == 2
+    assert any("`widget` is not" in t for t in w) and any("`.1map` is not" in t for t in w)

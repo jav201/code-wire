@@ -58,12 +58,10 @@ def test_offers_are_read_with_their_source():
     assert ent["offers"][2]["source"] is None
 
 
-def test_g9_names_an_offer_that_cannot_hold():
-    g9 = [w["text"] for w in cw.graph_warnings(GRAPH) if w["code"] == "G9"]
-    assert len(g9) == 3
-    assert any("not an `[Interface]`" in t for t in g9)        # an offer on data
-    assert any("not of the form" in t for t in g9)             # no quotes, no source
-    assert any("`exit_app` is not a node" in t for t in g9)    # the recorder cannot see a node that is not in the graph
+def test_an_offer_of_another_form_is_a_line_not_read():
+    # `offers: k → show_legend` has no quotes: the parser skips it, so C16 would check nothing for it
+    bad = [u["text"] for u in cw.unread(GRAPH) if "offers" in u["text"]]
+    assert len(bad) == 1 and "not of the form" in bad[0]
 
 
 @pytest.fixture
@@ -128,6 +126,6 @@ def test_the_report_and_the_exit_code(tmp_path, log):
     out = tmp_path / "c16.md"
     assert ce.main(["--graph", str(tmp_path / "g.md"), "--trace", f"T={path}", "--out", str(out)]) == 1
     text = out.read_text(encoding="utf-8")
-    assert "## Offers (A3b)" in text and "the control does not do what it offers" in text
+    assert "## Offers" in text and "the control does not do what it offers" in text
     # read from the file, S4 is still a step of the log: the step markers survive the write and the read
     assert "| `load_file` | T | ok |" in text
