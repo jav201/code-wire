@@ -80,7 +80,9 @@ def run(tmp_path, *extra):
     elsewhere = tmp_path / "elsewhere"   # the working folder holds no code: the root comes from --path
     elsewhere.mkdir(exist_ok=True)
     p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", env=env, cwd=elsewhere)
-    evs = [e for e in (json.loads(line) for line in (tmp_path / "ev.jsonl").read_text(encoding="utf-8").splitlines()) if "meta" not in e]
+    rows = [json.loads(line) for line in (tmp_path / "ev.jsonl").read_text(encoding="utf-8").splitlines()]
+    evs = [e for e in rows if "node" in e]
+    run.markers = [e["step"] for e in rows if e.get("kind") == "step"]
     return p, sorted(evs, key=lambda e: e["seq"])
 
 
@@ -97,6 +99,8 @@ def test_a_script_gives_events_with_roots_and_steps(tmp_path):
         ("U1.2", "harness", "load", "parse", "P2"),
     ]
     assert {e["run"] for e in evs} == {"probe"}
+    # one step marker for each step, also for U1.3, where no node runs (A3b)
+    assert run.markers == ["U1.0", "U1.1", "U1.2", "U1.3"]
     # the printed output still reaches the console
     assert "== U1.1 key l" in p.stdout and "== U1.3 the end" in p.stdout
 
@@ -121,7 +125,8 @@ def test_relative_output_paths_survive_a_chdir_of_the_script(tmp_path):
     env = {"PYTHONPATH": str(TOOLS), "PYTHONIOENCODING": "utf-8", "SYSTEMROOT": __import__("os").environ.get("SYSTEMROOT", "")}
     p = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", env=env, cwd=tmp_path)
     assert p.returncode == 0, p.stderr
-    assert len((tmp_path / "ev.jsonl").read_text(encoding="utf-8").splitlines()) == 1 + 6   # the meta line and 6 events
+    rows = [json.loads(l) for l in (tmp_path / "ev.jsonl").read_text(encoding="utf-8").splitlines()]
+    assert len([r for r in rows if "node" in r]) == 6
     assert (tmp_path / "t.json").exists()
 
 

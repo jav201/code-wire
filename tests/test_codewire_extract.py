@@ -159,7 +159,7 @@ def test_edges_parse_when_quantifier_and_unknown_ends():
     nodes = [n["name"] for n in cw.parse_graph(GRAPH)]
     edges = cw.parse_edges(GRAPH, nodes)
     assert len(edges) == 4
-    assert edges[0]["src"]["entity"] == "[I/O: file]" and edges[0]["dst"] == {"entity": None, "node": "Box.__init__", "port": "path"}
+    assert edges[0]["src"]["entity"] == "[I/O: file]" and edges[0]["dst"] == {"entity": None, "field": None, "node": "Box.__init__", "port": "path"}
     assert edges[2]["dst"]["node"] == "check" and edges[2]["dst"]["port"] == "path"  # [1→N] dropped
     assert edges[2]["when"] == "limit > 0" and edges[1]["when"] is None
     assert edges[3]["dst"]["unknown"] == "nowhere.x"

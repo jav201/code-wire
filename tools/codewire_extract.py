@@ -21,10 +21,17 @@ from pathlib import Path
 
 MARK_RE = re.compile(r"^\s*#\s*node:\s*(\S+)\s*(?:\[([^\]]*)\])?")
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".dev-flow"}
-NODE_KEYS = ("req", "in", "out", "func", "module", "modify", "inner", "open", "contract")  # and `examples:`
-ENTITY_KEYS = ("in", "desc", "sequence")
+NODE_KEYS = ("req", "in", "out", "func", "module", "modify", "inner", "open", "contract", "volatile", "oracle")  # and `examples:`
+REPEAT_KEYS = ("examples", "oracle")   # a key that can have more than one line in a node
+ENTITY_KEYS = ("in", "desc", "sequence", "offers")
+OFFER = re.compile(r'^offers:\s*(\([^)]*\)\s*)?"([^"]+)"\s*→\s*(\S+)\s*$')
 FINDING_KEYS = ("anchor", "seen", "cause", "effect", "decision")
-SECTIONS = ("Nodes", "Entities", "Edges", "Boundary", "Findings")
+SECTIONS = ("Nodes", "Entities", "Edges", "Boundary", "Routes", "Findings")
+ROUTE_KEYS = ("route", "entry", "desc")
+MARKERS = ("synthetic", "inferred")
+CODE_NAME = re.compile(r"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$")
+ENTITY_END = re.compile(r"^(\[[^\]]*\])(.*)$")   # an entity, then maybe `.field` (A3d)
+FIELD = re.compile(r"^\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)$")
 ASSIGN_RE = re.compile(r"\s*\((replace|clear|append)\)\s*$")
 TYPING_ALIASES = {"List": "list", "Dict": "dict", "Tuple": "tuple", "Set": "set", "FrozenSet": "frozenset", "Type": "type"}
 ARROW = "──▶"
@@ -195,11 +202,13 @@ def parse_graph(md_text):
         lines = [l for l in block.strip().splitlines() if l.strip()]
         if len(lines) < 2 or lines[0].startswith(("[", "#", ">")) or ":" in lines[0]:
             continue
-        fields, examples = {}, []
+        fields, examples, oracle = {}, [], []
         for line in lines[1:]:
             m = re.match(r"(\w+):\s*(.*)$", line)
             if m and m.group(1) == "examples":  # repeatable: one line per input → output pair
                 examples.append(m.group(2).strip())
+            elif m and m.group(1) == "oracle":  # repeatable: one line per outside source
+                oracle.append(m.group(2).strip())
             elif m and m.group(1) in NODE_KEYS:
                 fields.setdefault(m.group(1), m.group(2).strip())  # a second line of a key is G3: skipped
         if "in" not in fields and "out" not in fields:
@@ -221,6 +230,8 @@ def parse_graph(md_text):
             "func": fields.get("func") or None,
             "open": fields.get("open") or None,
             "contract": fields.get("contract") or None,
+            "volatile": [x.strip() for x in fields.get("volatile", "").split(",") if x.strip()],
+            "oracle": oracle,
         })
     return nodes
 
@@ -271,15 +282,18 @@ def load_graphs(texts):
 
 def parse_edges(md_text, node_names, title="Edges"):
     """Every `A ──▶ B` line of `## <title>`; a following `when:` line is attached to the edge.
-    An endpoint is an entity `[...]` or `<node>[.<port>]`, the node being the longest known prefix."""
+    An endpoint is an entity `[...]` with an optional `.field`, or `<node>[.<port>]`, the node being the
+    longest known prefix."""
     def endpoint(text):
         text = text.strip()
-        if text.startswith("["):
-            return {"entity": text, "node": None, "port": None}
+        e = ENTITY_END.match(text)
+        if e:
+            f = FIELD.match(e.group(2).strip())
+            return {"entity": e.group(1), "field": f.group(1) if f else e.group(2).strip() or None, "node": None, "port": None}
         for name in sorted(node_names, key=len, reverse=True):
             if text == name or text.startswith(name + "."):
-                return {"entity": None, "node": name, "port": text[len(name) + 1:] or None}
-        return {"entity": None, "node": None, "port": None, "unknown": text}
+                return {"entity": None, "field": None, "node": name, "port": text[len(name) + 1:] or None}
+        return {"entity": None, "field": None, "node": None, "port": None, "unknown": text}
 
     edges = []
     for line in section(md_text, title).splitlines():
@@ -342,11 +356,16 @@ def parse_entity_blocks(md_text):
         name = block[0][1].strip()
         if not name.startswith("["):
             continue
-        ent, in_seq = {"name": name, "kind": entity_kind(name), "in": None, "desc": None, "sequence": []}, False
+        ent, in_seq = {"name": name, "kind": entity_kind(name), "in": None, "desc": None, "sequence": [], "offers": []}, False
         for _, line in block[1:]:
             ev = re.match(r"\s+(\w+):\s*(.*)$", line)
             if in_seq and ev:
                 ent["sequence"].append({"event": ev.group(1), "steps": [parse_step(s) for s in ev.group(2).split("→")]})
+                continue
+            o = OFFER.match(line.strip())
+            if o:
+                ent["offers"].append({"source": example_source(o.group(1)) if o.group(1) else None,
+                                      "control": o.group(2), "node": o.group(3)})
                 continue
             f = re.match(r"(\w+):\s*(.*)$", line)
             in_seq = bool(f) and f.group(1) == "sequence"
@@ -354,6 +373,60 @@ def parse_entity_blocks(md_text):
                 ent[f.group(1)] = f.group(2).strip() or None
         out.append(ent)
     return out
+
+
+def parse_routes(md_text):
+    """The `route:` blocks of `## Routes`: name, entries, desc (Notation-Grammar.md §6.1)."""
+    out = []
+    for block in numbered_blocks(numbered_sections(md_text).get("Routes", [])):
+        r = {"name": None, "entries": [], "desc": None}
+        for _, line in block:
+            m = re.match(r"(\w+):\s*(.*)$", line.strip())
+            if not m:
+                continue
+            if m.group(1) == "route" and r["name"] is None:
+                r["name"] = m.group(2).strip() or None
+            elif m.group(1) == "entry" and not r["entries"]:
+                r["entries"] = [e.strip() for e in split_entries(m.group(2)) if e.strip()]
+            elif m.group(1) == "desc" and r["desc"] is None:
+                r["desc"] = m.group(2).strip() or None
+        if r["name"]:
+            out.append(r)
+    return out
+
+
+def split_entries(text):
+    """Split at each comma that is not inside `[ … ]` (an entity name can hold a comma)."""
+    parts, depth, cur = [], 0, ""
+    for ch in text:
+        depth += ch == "["
+        depth -= ch == "]"
+        if ch == "," and depth == 0:
+            parts.append(cur)
+            cur = ""
+        else:
+            cur += ch
+    return parts + [cur]
+
+
+def example_source(line):
+    """The source in the parentheses of an `examples:` line: {thread, step, root, marker}.
+    `(T1, t1a)`, `(U2, U2.4, root TuiApp.on_button_pressed)`, `(synthetic)`, `(T-8, inferred)`."""
+    src = {"thread": None, "step": None, "root": None, "marker": None}
+    m = re.match(r"\s*\(([^)]*)\)", line)
+    if not m:
+        return src
+    for i, part in enumerate(p.strip() for p in m.group(1).split(",")):
+        word = part.split(" ")[0]
+        if part in MARKERS:
+            src["marker"] = part
+        elif word == "root" and len(part.split()) == 2:
+            src["root"] = part.split()[1]
+        elif i == 0:
+            src["thread"] = part
+        elif src["step"] is None:
+            src["step"] = part
+    return src
 
 
 def parse_findings(md_text):
@@ -385,8 +458,9 @@ def graph_warnings(md_text):
 
     def known(end, declared_only):
         end = re.sub(r"^\[\d+→\w+\]\s*", "", end.strip())
-        if end.startswith("["):
-            return not declared_only or end in entities
+        e = ENTITY_END.match(end)
+        if e:
+            return not declared_only or e.group(1) in entities
         return any(end == n or end.startswith(n + ".") for n in names)
 
     def fields(block, keys, where, twice):
@@ -396,7 +470,7 @@ def graph_warnings(md_text):
             key = f.group(1) if f else None
             if key not in keys:
                 warn("G2", i, f"`{line.strip()[:40]}` in {where}: not a field of the grammar")
-            elif key in seen and twice and key != "examples":  # one `examples:` line for each pair
+            elif key in seen and twice and key not in REPEAT_KEYS:  # one `examples:` line for each pair
                 warn("G3", i, f"`{key}:` two times in {where}: the second line is skipped")
             seen.add(key)
         return seen
@@ -411,10 +485,22 @@ def graph_warnings(md_text):
             warn("G7", i, f"`{first[:40]}`: a block in `## Nodes` with no name line")
         elif not {"in", "out"} & fields(block, NODE_KEYS + ("examples",), f"node `{first}`", True):
             warn("G7", i, f"node `{first}` has no `in:` and no `out:`")
+        else:
+            node_fields(block, first, warn)
     for block in numbered_blocks(secs.get("Entities", [])):
         rest = [(i, l) for i, l in block if not re.match(r"\s+\w+:", l)]  # the lines under `sequence:`
         if block[0][1].startswith("["):
             fields(rest, ENTITY_KEYS, f"entity `{block[0][1].strip()}`", False)
+            for i, line in rest:
+                if not line.strip().startswith("offers:"):
+                    continue
+                o = OFFER.match(line.strip())
+                if not o:
+                    warn("G9", i, f"`{line.strip()[:50]}`: not of the form offers: (source) \"control\" → node")
+                elif not block[0][1].startswith("[Interface:"):
+                    warn("G9", i, f"`offers:` on `{block[0][1].strip()}`, which is not an `[Interface]` entity")
+                elif o.group(3) not in names:
+                    warn("G9", i, f"offer `{o.group(2)}`: `{o.group(3)}` is not a node of `## Nodes`")
     for title in ("Edges", "Boundary"):
         edge_before = False
         for i, line in secs.get(title, []):
@@ -422,10 +508,25 @@ def graph_warnings(md_text):
             if ARROW in s:
                 edge_before = True
                 for end in s.split(ARROW, 1):
-                    if not known(end, False):
-                        warn("G4", i, f"`{end.strip()}` is not a node, a port of a node or an entity")
+                    end = re.sub(r"^\[\d+→\w+\]\s*", "", end.strip())
+                    e = ENTITY_END.match(end)
+                    if e and e.group(2).strip() and not FIELD.match(e.group(2).strip()):
+                        warn("G12", i, f"`{end}`: after the entity, `{e.group(2).strip()}` is not `.` and a name")
+                    elif not known(end, False):
+                        warn("G4", i, f"`{end}` is not a node, a port of a node or an entity")
             elif s.startswith("when:") and not edge_before:
                 warn("G5", i, "`when:` with no edge before it")
+    for block in numbered_blocks(secs.get("Routes", [])):
+        i, first = block[0][0], block[0][1].strip()
+        fields(block, ROUTE_KEYS, f"route `{first[:40]}`", True)
+        entry = [l for _, l in block if l.strip().startswith("entry:")]
+        if not entry or not entry[0].split(":", 1)[1].strip():
+            warn("G8", i, f"`{first[:40]}`: a route with no `entry:`")
+            continue
+        for e in split_entries(entry[0].split(":", 1)[1]):
+            e = e.strip()
+            if not (e in names or (e.startswith("[Outside:") and e in entities) or CODE_NAME.match(e)):
+                warn("G8", i, f"entry `{e}` is not a node, an `[Outside: …]` item of `## Boundary` or a code name")
     for block in numbered_blocks(secs.get("Findings", [])):
         i, first = block[0][0], block[0][1].strip()
         if not re.match(r"finding\s+\S+", first):
@@ -439,21 +540,38 @@ def graph_warnings(md_text):
     return sorted(w, key=lambda x: x["line"])
 
 
+def node_fields(block, name, warn):
+    """G10 and G11: a `volatile:` item must start with an input, an output name or `out`; an `oracle:` line
+    must name a source."""
+    value = lambda key: next((l.split(":", 1)[1].strip() for _, l in block if l.startswith(key + ":")), "")  # noqa: E731
+    ins = {parse_decl(x)["name"] for x in split_top(value("in"), ";") if x.strip()}
+    outs = set(parse_out(value("out"))["names"]) | {"out"}
+    for i, line in block[1:]:
+        if line.startswith("volatile:"):
+            for item in (x.strip() for x in line.split(":", 1)[1].split(",")):
+                if item.split(".")[0] not in ins | outs:
+                    warn("G10", i, f"volatile `{item}` of `{name}`: not an input, an output or `out`")
+        elif line.startswith("oracle:") and not line.split(":", 1)[1].strip():
+            warn("G11", i, f"an empty `oracle:` line in `{name}`")
+
+
 def parse_text(md_text):
     """The full parse of one graph text, in the shape of Notation-Grammar.md §8."""
     nodes, edges, entities, _ = load_graphs([md_text])
     blocks = {e["name"]: e for e in parse_entity_blocks(md_text)}
-    end = lambda p: {k: p[k] for k in ("node", "port", "entity")}  # noqa: E731
+    end = lambda p: {k: p[k] for k in ("node", "port", "entity", "field")}  # noqa: E731
     return {
         "nodes": [{"name": n["name"], "reqs": n["reqs"], "in": n["in"], "out": n["out"], "func": n["func"],
                    "module": n["module"], "examples": n["examples"],
                    "modify": [{"target": t, "assign": a} for t, a in zip(n["modify"], n["assign"])],
-                   "inner": n["inner"], "open": n["open"], "contract": n["contract"]} for n in nodes],
-        "entities": [blocks.get(e, {"name": e, "kind": entity_kind(e), "in": None, "desc": None, "sequence": []})
+                   "inner": n["inner"], "open": n["open"], "contract": n["contract"],
+                   "volatile": n["volatile"], "oracle": n["oracle"]} for n in nodes],
+        "entities": [blocks.get(e, {"name": e, "kind": entity_kind(e), "in": None, "desc": None, "sequence": [], "offers": []})
                      for e in entities],
         "edges": [{"src": end(e["src"]), "dst": end(e["dst"]), "quantifier": e["quantifier"], "when": e["when"],
                    "boundary": e["boundary"], "raw": e["raw"]} for e in edges],
         "discarded": parse_discarded(md_text),
+        "routes": parse_routes(md_text),
         "findings": parse_findings(md_text),
         "warnings": graph_warnings(md_text),
     }

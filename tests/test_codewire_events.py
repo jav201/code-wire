@@ -136,7 +136,9 @@ def test_log_round_trip(tmp_path):
     path = events.write(tmp_path / "ev.jsonl", skipped=["new_step"])
     back = events.read(path)
     # read() gives the call order (seq); the recorder keeps the order in which the calls returned
-    assert [e["hash"] for e in back] == [e["hash"] for e in sorted(events.EVENTS, key=lambda e: e["seq"])]
+    assert [e["hash"] for e in back] == [e["hash"] for e in sorted(events.calls_of(events.EVENTS), key=lambda e: e["seq"])]
+    # the step marker is in the file too: a step with no node call is still in the log (A3b)
+    assert [m["step"] for m in events.read(path, markers=True) if m.get("kind") == "step"] == ["U1.1"]
     assert [e["node"] for e in back] == ["load", "parse"]
     assert {e["step"] for e in back} == {"U1.1"}
     # the nodes with no code yet travel with the log, so C16 can still tell a NEW node

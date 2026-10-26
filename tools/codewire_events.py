@@ -7,7 +7,8 @@ literal inputs and output, and a hash of those values after the volatile parts a
     CW_ENTRY     regex for the name of an entry-point function (default `^(action_|on_)`)
     CW_ROOT      folder of the project code; only frames from files in it can be a root (default: cwd)
     CW_VOLATILE  more regexes for volatile text, separated by os.pathsep (temp folders and object
-                 addresses are always volatile)
+                 addresses are always volatile). A node can also name its volatile values in the graph
+                 (`volatile:`, A3c): the event keeps them, the hash does not use them.
     CW_EVENTS    event log to write, one JSON object per line (default cw-events.jsonl)
     CW_RUN       run id written in each event (default `pytest`)
 
@@ -56,8 +57,34 @@ def normalize(text):
     return text
 
 
-def event_hash(node, inputs, output, after=None):
-    """The same values give the same hash in every run: temp folders and addresses do not count."""
+def mask(value, path):
+    """A copy of the literal `value` with the item at `path` changed to `<volatile>`. A key of a dict, an
+    index of a list, or a field of an object (`lit()` writes an object as `{Class: {field: …}}`).
+    A path that is not in the value changes nothing."""
+    if not path:
+        return "<volatile>"
+    key, rest = path[0], path[1:]
+    if isinstance(value, dict):
+        if key in value:
+            return {**value, key: mask(value[key], rest)}
+        if len(value) == 1:
+            (cls, fields), = value.items()
+            if isinstance(fields, dict) and key in fields:
+                return {cls: mask(fields, path)}
+    if isinstance(value, list) and isinstance(key, int) and key < len(value):
+        return value[:key] + [mask(value[key], rest)] + value[key + 1:]
+    return value
+
+
+def event_hash(node, inputs, output, after=None, volatile=()):
+    """The same values give the same hash in every run: temp folders and addresses do not count, and
+    neither do the `volatile` items of the node: (part, path) with part `in` or `out`."""
+    for part, path in volatile:
+        if part == "out":
+            output = mask(output, path)
+        else:
+            inputs = mask(inputs, path) if isinstance(inputs, dict) else inputs
+            after = mask(after, path) if isinstance(after, dict) else after   # a modified input
     body = json.dumps([node, inputs, output, after], sort_keys=True, ensure_ascii=False, default=str)
     return hashlib.sha256(normalize(body).encode("utf-8")).hexdigest()[:10]
 
@@ -159,9 +186,9 @@ def begin(node, frame, code=None, args=()):
     return ev
 
 
-def end(ev, call=None):
+def end(ev, call=None, volatile=()):
     """Close the call. With `call`, copy the recorded values, hash them and keep the event; with no
-    `call` (over the limit), only close it."""
+    `call` (over the limit), only close it. `volatile` comes from `volatile:` of the node."""
     stack = _open()
     if stack:
         stack.pop()
@@ -170,7 +197,7 @@ def end(ev, call=None):
     for k in ("in", "out", "after", "files"):
         if k in call:
             ev[k] = call[k]
-    ev["hash"] = event_hash(ev["node"], ev.get("in"), ev.get("out"), ev.get("after"))
+    ev["hash"] = event_hash(ev["node"], ev.get("in"), ev.get("out"), ev.get("after"), volatile)
     for extra in EXTRAS:
         extra(ev)
     with _LOCK:
@@ -179,8 +206,23 @@ def end(ev, call=None):
 
 
 def step(label):
-    """Name the step of the run that the next events belong to (a script or a test can call it)."""
+    """Name the step of the run that the next events belong to (a script or a test can call it).
+    The log also gets a step marker, so that a step in which no node runs is still in the log: `expect none`
+    can then tell "nothing ran in this step" from "the run has no such step"."""
     STEP[0] = str(label)
+    with _LOCK:
+        SEQ[0] += 1
+        EVENTS.append({"kind": "step", "run": RUN, "step": STEP[0], "seq": SEQ[0]})
+
+
+def calls_of(events):
+    """The node events only (no step markers)."""
+    return [e for e in events if "node" in e]
+
+
+def steps_of(events):
+    """The steps of a log in their order: from the step markers and from the node events."""
+    return list(dict.fromkeys(e.get("step") for e in sorted(events, key=lambda e: e.get("seq", 0)) if e.get("step")))
 
 
 def write(path=None, events=None, skipped=None):
@@ -194,10 +236,12 @@ def write(path=None, events=None, skipped=None):
     return path
 
 
-def read(path):
-    """The events of a log, in call order (the meta line is not an event)."""
+def read(path, markers=False):
+    """The node events of a log, in call order (the meta line is not an event). With `markers`, the step
+    markers too."""
     rows = [json.loads(line) for line in Path(path).read_text(encoding="utf-8").splitlines() if line.strip()]
-    return sorted((r for r in rows if "meta" not in r), key=lambda e: (e.get("run", ""), e["seq"]))
+    rows = [r for r in rows if "meta" not in r and (markers or "node" in r)]
+    return sorted(rows, key=lambda e: (e.get("run", ""), e["seq"]))
 
 
 def read_meta(path):
@@ -210,8 +254,8 @@ def read_meta(path):
 def trace_view(events, max_calls=3, skipped=()):
     """The old trace shape {node: [call, …]} that C16 reads, with at most `max_calls` calls for each
     (root, node) pair (None: all of them)."""
-    trace, kept = {"_skipped": list(skipped)}, {}
-    for ev in sorted(events, key=lambda e: e["seq"]):
+    trace, kept = {"_skipped": list(skipped), "_steps": steps_of(events)}, {}
+    for ev in sorted(calls_of(events), key=lambda e: e["seq"]):
         key = (ev["root"], ev["node"])
         if max_calls is not None and kept.get(key, 0) >= max_calls:
             continue
@@ -228,7 +272,7 @@ def examples(events):
     """{(root, node): [{"in", "out", "after", "hash", "steps", "count"}, …]}: the distinct values that
     each entry point gave to each node, in the order of the first call."""
     out = {}
-    for ev in events:
+    for ev in calls_of(events):
         rows = out.setdefault((ev["root"], ev["node"]), [])
         row = next((r for r in rows if r["hash"] == ev["hash"]), None)
         if row is None:
@@ -244,7 +288,7 @@ def variants(events):
     """{root: [(path, count), …]}: the distinct paths that one entry point took in one step, most
     frequent first. A path is the list of nodes in call order, with a repeat in a row shown once."""
     groups = {}
-    for ev in events:
+    for ev in calls_of(events):
         groups.setdefault((ev.get("run"), ev.get("step"), ev["root"]), []).append(ev["node"])
     counts = {}
     for (_, _, root), nodes in groups.items():
@@ -257,7 +301,7 @@ def variants(events):
 def matrix(events):
     """{root: {node: number of calls}}."""
     m = {}
-    for ev in events:
+    for ev in calls_of(events):
         row = m.setdefault(ev["root"], {})
         row[ev["node"]] = row.get(ev["node"], 0) + 1
     return m
@@ -271,6 +315,7 @@ def diff(a, b):
         for ev in evs:
             steps.setdefault(ev.get("step"), []).append(ev)
         return steps
+    a, b = calls_of(a), calls_of(b)
     sa, sb = by_step(a), by_step(b)
     order = list(dict.fromkeys([e.get("step") for e in a] + [e.get("step") for e in b]))
     keys = ("node", "root", "in", "out", "hash")
@@ -291,6 +336,7 @@ def _short(v, n=70):
 
 def report(events):
     """A Markdown page of the three views."""
+    events = calls_of(events)
     m, ex, va = matrix(events), examples(events), variants(events)
     nodes = sorted({e["node"] for e in events})
     roots = sorted(m)

@@ -9,6 +9,10 @@ Usage: python codewire_coherence.py --graph G1.md [--graph G2.md] [--trace T=tra
     C7   the names of nodes and entities are unique
     C10  each `[…]` target of `modify:` is declared, and each entity is read or written
 
+The report also lists the fields of each entity that an edge names with a field (`[Data: X].f`, A3d):
+which nodes read each field and which write it. It is info. Two readers of two fields of one entity are
+two sources of truth (data MF-8, CW-D-7).
+
 An input with a default value and no edge is info, not open: the default gives the value.
 An input of a node that only a node-to-node edge with no ports calls is listed apart. It is open,
 because `Metodologia.md` §3.3 asks for a port on a caller edge.
@@ -106,6 +110,40 @@ def check(texts):
     return nodes, res
 
 
+def fields(nodes, edges):
+    """{entity: {field: {"read": set, "write": set}}} for each entity that an edge names with a field.
+    A write of the whole entity (an edge with no field, or `modify:`) is under the field `*`."""
+    named = {e[s]["entity"] for e in edges for s in ("src", "dst") if e[s]["entity"] and e[s].get("field")}
+    out = {x: collections.defaultdict(lambda: {"read": set(), "write": set()}) for x in named}
+    for e in edges:
+        src, dst = e["src"], e["dst"]
+        if src["entity"] in named and dst["node"]:
+            out[src["entity"]][src["field"] or "*"]["read"].add(dst["node"])
+        if dst["entity"] in named and src["node"]:
+            out[dst["entity"]][dst["field"] or "*"]["write"].add(src["node"])
+    for n in nodes:
+        for t in n["modify"]:
+            if t in named:
+                out[t]["*"]["write"].add(n["name"])
+    return out
+
+
+def render_fields(view):
+    if not view:
+        return []
+    out = ["", "## Fields of an entity (info, A3d)", "",
+           "A row for each field that an edge names. A writer of the whole entity is under `*`.", "",
+           "| entity | field | read by | written by |", "|---|---|---|---|"]
+    names = lambda xs: ", ".join(f"`{x}`" for x in sorted(xs)) or "—"  # noqa: E731
+    for ent in sorted(view):
+        whole = view[ent]["*"]["write"] if "*" in view[ent] else set()
+        for f in sorted(view[ent], key=lambda f: (f == "*", f)):
+            row = view[ent][f]
+            note = "" if f == "*" or row["write"] or whole or not row["read"] else " (no node of the graph writes it)"
+            out.append(f"| `{ent}` | `{f}` | {names(row['read'])} | {names(row['write'])}{note} |")
+    return out
+
+
 TITLES = [("C2", "C2 · input with no edge"), ("C2_default", "C2 · info: input with a default value and no edge"),
           ("C2_call", "C2 · input that only a node-to-node call edge (no ports) reaches: open under §3.3"),
           ("C3", "C3 · output that nothing uses"), ("C4_from", "C4 · node that no source reaches"),
@@ -113,7 +151,7 @@ TITLES = [("C2", "C2 · input with no edge"), ("C2_default", "C2 · info: input 
           ("C10_target", "C10 · `modify:` target that is not declared"), ("C10_orphan", "C10 · entity that no node reads or writes")]
 
 
-def render(res, status):
+def render(res, status, view=None):
     def item(x):
         node = x[0] if isinstance(x, tuple) else x
         text = ".".join(x) if isinstance(x, tuple) else x
@@ -128,6 +166,7 @@ def render(res, status):
     for k, t in TITLES:
         if res[k]:
             out += ["", f"## {t}", ""] + [item(x) for x in res[k]]
+    out += render_fields(view)
     return "\n".join(out) + "\n"
 
 
@@ -137,12 +176,14 @@ def main(argv=None):
     ap.add_argument("--trace", action="append", default=[], help="THREAD=trace.json, for the node status")
     ap.add_argument("--out", required=True, type=Path)
     a = ap.parse_args(argv)
-    nodes, res = check([g.read_text(encoding="utf-8") for g in a.graph])
+    texts = [g.read_text(encoding="utf-8") for g in a.graph]
+    nodes, res = check(texts)
+    view = fields(nodes, cw.load_graphs(texts)[1])
     traces = {}
     for t in a.trace:
         name, _, path = t.partition("=")
         traces[name] = json.loads(Path(path).read_text(encoding="utf-8"))
-    a.out.write_text(render(res, ce.node_status(nodes, traces)), encoding="utf-8")
+    a.out.write_text(render(res, ce.node_status(nodes, traces), view), encoding="utf-8")
     opened = sum(len(v) for k, v in res.items() if k != "C2_default")
     print(" ".join(f"{k}={len(v)}" for k, v in res.items()) + f" -> {a.out}")
     return 1 if opened else 0

@@ -47,6 +47,8 @@ Do not use `**`: the dot in `Class.method` shows a method. Why B and not one lin
 | `inner:` | if it is a subsystem | the list of the inner nodes that it calls (§3.5). C15 compares this list with the calls in the code |
 | `open:` | if there is `Any` or a generic type without parameters | the name of the data and why it cannot be more specific (Q23) |
 | `contract:` | no | preconditions, postconditions or invariants, only where an error is expensive |
+| `volatile:` | no | the values of the node that change in each run (A3c): an input, `out` or the name of the output, with fields after dots (`prepared.mac_cache_key`). The recorder keeps them in the event, and the hash does not use them |
+| `oracle:` | no | a source of truth outside the code and the graph (A3c): a standard, a section of a README, a file of examples. One line for each source. `req:` names only the ids of the project |
 
 **Examples as a literal thread (decided 2026-10-18, round 3)**. An example follows **one real data item** through the flow, with its literal value at each node. It replaces the old «shape + sample» format (counts and a short sample). The pilot tried that format, and it gave only part of the information.
 1. **One thread for each flow.** Take **one** line or item from each input file or source. Choose the item that leads to the result of interest. In the pilot, this is `OVER_B`, where S19, A2L and MAC meet in the same issues. That line already shows the content and the format (S19 or HEX, for example).
@@ -67,6 +69,8 @@ Do not use `**`: the dot in `Class.method` shows a method. Why B and not one lin
    - **SHIPPED**: all the other nodes.
 
    Thus a node that keeps its signature but changes its behaviour shows as CHANGED. The extractor cannot see that change, because the signature is the same.
+10. **Root and step (A3a).** The source can name the step and the root of the call: `(U2, U2.4, root TuiApp.on_button_pressed)`. The root is the entry point that started the call (§3.8). With a root, C16 compares the line only with the calls from that root. Thus a line that passes only because a test called the node directly fails.
+11. **No call (A3b).** `→ expect none` after the arrow says that the node does not run in that step: `(U1, U1.6) Load with an empty input → expect none`. The line needs a step and an event log.
 
 **Type + name:** the name obeys the design rules (domain vocabulary), and the type gives the name its context. **The type is as specific as possible (Q23):** if the data can have only a set of types, write that set (`dict[str, int]`, `int | str`). If it really can be any type (`Any`, a `dict` without parameters), write it like that. Give the reason in the `open:` field of the node (`open: payload — fields that the view sets; they change for each screen`). You can use primitives (`str filePath`). Declare a composite data item one time, as a named type with fields.
 
@@ -94,7 +98,11 @@ in: str
 desc: log entries classified as type A
 ```
 
-Fields: category, name, `in:` (the type that it receives), `desc:` and, for a `[Data]` entity with more than one writer, `sequence:`.
+Fields: category, name, `in:` (the type that it receives) and `desc:`. A `[Data]` entity with more than one writer also has `sequence:`. An `[Interface]` entity can have `offers:`.
+
+**Promises of a screen (`offers:`, A3b).** An `[Interface]` entity can name what each control offers and the node that the control must run: `offers: (U2, U2.4) "p Load project" → TuiApp.action_load_project`. An example line tells what one run did. An offer tells what each press must do. With a source, C16 checks that the node ran in that step. CW-U-2 is a set of offers that are not kept. After a load, the keys that the key bar and the help offer (`k`, `g`, `p`) do nothing.
+
+**Focus and screens (UI, A3d).** For a UI graph, declare the focus and the screen stack as `[Data]` entities: `[Data: App.focused]` and `[Data: App.screen_stack]`. A key binding is an edge from an `[Outside: key]` item, with a `when:` on the focus.
 
 **App state as a channel (Q19, decided 2026-10-17: option A)**. A data item that moves through a shared attribute (for example `TuiApp._validation_issues`) is a `[Data: …]` entity. The node that sets it has `modify:` to it. The node that reads it receives an arrow from it, and so that node is not pure (§3.6). The diagram does **not** show the order of the writes or which assignment wins. A separate visual aid next to the entity shows that: the **sequence strip for each event (P2, Q19b)**.
 
@@ -117,6 +125,7 @@ Read file.fileLine ──▶ [1→N] Classify string log entry.fileLine
 - **Caller edge (v2.6).** The source of this edge is a node with no port: `OpenFolderChip._open_target ──▶ is_openable_chip_dir.root`. It means that the source node computes the value in its own body and passes it. C2 counts the input as fed. Write one caller edge for each input. A node-to-node edge with no ports declares a call (C15), but it does not feed an input. Decided 2026-10-21: the strict rule found H-C3 in first-use.
 - **Return edge (v2.6).** The target of this edge is a node with no port: `_parse_a2b_entry.block ──▶ dict_to_flow`. It means that the called node returns the value to its caller, and the caller uses it in its own body. It is the mirror of the caller edge. C3 counts the output as used.
 - **Outside item (v2.6).** `[Outside: name]` is a caller or a consumer outside the graph, for example a key press or the event loop of a framework. It uses the bracket form of an entity. The section `## Boundary` declares it (§3.7). An edge from an outside item is the `external` of C2.
+- **Field edge (A3d).** An edge can name the field of an entity that it reads or writes: `[Data: TuiApp.current_file].ranges ──▶ build_plan.src`. Two readers of two fields of one entity are two sources of truth. CW-D-7 came from such a pair (`ranges` and `mem_map`). The checks of the entity (C4, C10) see a field edge as an edge of the entity.
 - **Message (v2.6).** A framework message (for example `post_message` in Textual) is not a call, so C15 cannot see it. Declare it as a usual edge. C15 does not look for a call for that edge.
 
 **Branched arrow = same value (Q25, 2026-10-18).** If the output of a node goes to more than one consumer, all the consumers receive the same value. The node runs one time for each flow (except with `[1→N]`). This is a contract, not a guarantee. DDR checks it with C15. When a node runs two times, the review shows the **overlap view** (diagram 12).
@@ -143,6 +152,18 @@ discarded: open_folder_in_file_manager.opened — the press path shows the statu
 - A line with `[Outside: …]` is an edge from or to an outside item. An outside item is a source or a sink for C4. C10 does not ask for a node that writes it.
 - A `discarded:` line names an output that nothing uses, and gives the reason after `—`. C3 counts it as declared. If the reason is not a design decision, write a finding (`## Findings`) instead.
 - Do not put a node or an entity of the slice in `## Boundary`.
+
+### 3.8 Routes (A3a)
+A route is one entry point and the paths from it: a key, a button, a handler of the framework. The section `## Routes` has one block for each route, with `route:` (the name), `entry:` (one or more entry points) and `desc:`. An entry is a node, an `[Outside: …]` item of `## Boundary` or a code name.
+
+```
+## Routes
+
+route: Load project with the Workspace button
+entry: TuiApp.on_button_pressed
+```
+
+The routes do not list their nodes. A tool derives the reach of a route from the edges, or from a recording. The root of an event in the event log is the entry point of its route (§8). CW-U-1 showed why the routes matter. One node got three different values from three entry points. Only the direct call of a test loaded the project.
 
 ## 4. Views and visual notation
 One graph, **only two views** (rule, 2026-10-16). There are no intermediate views:
@@ -192,7 +213,7 @@ Rules for the layers:
 | C13 | Each `Any` or generic type without parameters has its line in `open:` | vague types with no reason |
 | C14 | Text = source, diagram = view: each visual code (color, line weight, line style, position) comes from a field of the text; if you remove the styles and generate the diagram again, no information disappears | information that exists only in the drawing |
 | C15 | Each call between marked nodes, lifted to the marked node that contains it (O2, reflexion type), has a declaration in the graph (`inner:` or an edge); if not, it is a divergence | calls that nobody planned; a node that runs more times than the graph says (Q25) |
-| C16 | Each `examples:` line whose source has a recording holds: its literal anchors appear in one same recorded call of the node (inputs, output, modified inputs after the call, files that the node reads or writes) | an out-of-date thread: the example no longer describes what the code produces |
+| C16 | Each `examples:` line whose source has a recording holds: its literal anchors appear in one same recorded call of the node (inputs, output, modified inputs after the call, files that the node reads or writes). With a root, only the calls from that root count. `→ expect none` holds when the node has no call in that step. Each `offers:` line with a source holds when its node ran in that step | an out-of-date thread: the example no longer describes what the code produces; a control that does not do what the screen offers |
 | C17 | All English prose of the project follows the language rules of `Language-STE.md` (ASD-STE100): short sentences, one instruction for each step, one word for each concept | text that two readers understand in two different ways |
 
 ## 6. Life cycle
@@ -245,7 +266,7 @@ def validate_file_path(file_path: str) -> str:
 - Each node has exactly one mark in the code, and each mark belongs to a node.
 - Each node passes its examples: C16 shows no drift against the recording of each source (`cw_record_plugin.py` + `codewire_examples.py`). A list shows each source with no recording as not checked.
 - **The event log (A2, 2026-10-24).** The recorder also writes an event log (`cw-events.jsonl`). Each recorded call has its root, its parent node, its step and a hash of its values. The root is the entry point that started the call (a key, a button, a handler). It is `harness` when a test or a script called the node directly. C16 reads a log as a recording.
-- **Views of a log.** For each root, a log gives the examples of each node, the paths (variants) and a root × node matrix (`codewire_events.py report`). Two logs of the same run give the first step that differs (`codewire_events.py diff`). Volatile values (a clock, an object id) go in `CW_VOLATILE`, so that equal runs give equal hashes. A Textual app needs `CW_ADAPTERS=textual`, and a probe script runs under `cw_record_run.py`.
+- **Views of a log.** For each root, a log gives the examples of each node, the paths (variants) and a root × node matrix (`codewire_events.py report`). Two logs of the same run give the first step that differs (`codewire_events.py diff`). A node names its volatile values (a clock, a key made from object ids) in `volatile:`, so that equal runs give equal hashes. `CW_VOLATILE` is for a pattern that can be in any value, such as a temp folder. A Textual app needs `CW_ADAPTERS=textual`, and a probe script runs under `cw_record_run.py`.
 - **When DDR closes, the graph agrees with the code.** Each graph change since PDR has a record of its reason.
 - The lifted calls (C15) have no open divergences. The review examines each repeated call in the overlap view, with its path. The path shows where each call comes from and where it goes: it complements, duplicates or diverges.
 - The review findings go in the `## Findings` section of the text. Each finding has a line `finding <id> <title>` (`H-1`) and one-line fields: `anchor:` (the node, port, entity or edge), `seen:`, `cause:`, `effect:` and `decision:` (`Notation-Grammar.md` §7). **They are not part of the contract.** The view draws them in dashed red.
