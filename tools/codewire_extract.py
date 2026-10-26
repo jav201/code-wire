@@ -1,17 +1,13 @@
-"""Code-Wire DDR extractor: compare `# node:` marks in Python code with a Code-Wire graph (.md, format B).
+"""Code-Wire extractor: compare the `# node:` marks in Python code with a Code-Wire graph (.md, format B).
 
-Usage: python codewire_extract.py --repo <path> --graph <graph.md> --out <dir>
+Usage: python codewire_extract.py --repo <path> --graph <graph.md> [--path <folder>] --out <dir>
 
-Reads the canonical text (v2.5, format B: one field per line, `type name`, `;` between inputs,
-`X?` optional, `= default`), compares every node with the def its mark names, checks the edges
-against the declared ports, and applies C15: each call between marked nodes, lifted to the
-nearest marked node through unmarked helpers (O2, reflexion-style), must be declared in the
-graph (`inner:` of the caller, or an edge between the two). Writes <out>/extract.json and
-<out>/diff-report.md. Stdlib only.
-v2.6: the section `## Boundary` gives edges to and from `[Outside: …]` items, and `discarded:` lines.
-`codewire_coherence.py` uses them for C2, C3 and C4.
-E7b: `parse_text` gives the full parse of `docs/Notation-Grammar.md` §8, with the warnings G1–G7 of §9.
-`codewire_lint.py` writes it.
+For each node it compares the mark, the def and the contract: the inputs with their types and default
+values, the output type and the module. It also lists the real calls between marked nodes, lifted through
+unmarked helpers, so a reader sees who calls whom. `--path` keeps only the marks in the files of one slice.
+Writes <out>/extract.json and <out>/diff-report.md. Stdlib only.
+`parse_text` gives the parse of one graph text (Notation-Grammar.md), and `unread` gives the lines that
+the parser does not read. `codewire_lint.py` prints them.
 """
 import argparse
 import ast
@@ -21,15 +17,12 @@ from pathlib import Path
 
 MARK_RE = re.compile(r"^\s*#\s*node:\s*(\S+)\s*(?:\[([^\]]*)\])?")
 SKIP_DIRS = {".git", ".venv", "venv", "node_modules", "__pycache__", ".dev-flow"}
-NODE_KEYS = ("req", "in", "out", "func", "module", "modify", "inner", "open", "contract", "volatile", "oracle")  # and `examples:`
+NODE_KEYS = ("req", "in", "out", "func", "module", "modify", "volatile", "oracle")  # and `examples:`
 REPEAT_KEYS = ("examples", "oracle")   # a key that can have more than one line in a node
 ENTITY_KEYS = ("in", "desc", "sequence", "offers")
 OFFER = re.compile(r'^offers:\s*(\([^)]*\)\s*)?"([^"]+)"\s*→\s*(\S+)\s*$')
 FINDING_KEYS = ("anchor", "seen", "cause", "effect", "decision")
-SECTIONS = ("Nodes", "Entities", "Edges", "Boundary", "Routes", "Findings")
-ROUTE_KEYS = ("route", "entry", "desc")
-MARKERS = ("synthetic", "inferred")
-CODE_NAME = re.compile(r"^[A-Za-z_]\w*(\.[A-Za-z_]\w*)*$")
+SECTIONS = ("Nodes", "Entities", "Edges", "Findings")
 ENTITY_END = re.compile(r"^(\[[^\]]*\])(.*)$")   # an entity, then maybe `.field` (A3d)
 FIELD = re.compile(r"^\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)$")
 ASSIGN_RE = re.compile(r"\s*\((replace|clear|append)\)\s*$")
@@ -222,14 +215,11 @@ def parse_graph(md_text):
             "in": [parse_decl(i) for i in split_top(fields.get("in", ""), ";")],
             "out": parse_out(fields.get("out", "")),
             "module": fields.get("module") or None,
-            "inner": [x.strip() for x in fields.get("inner", "").split(",") if x.strip()],
             "examples": examples,
             # `modify:` targets without their assignment kind: an entity `[...]` or an input path (Q28)
             "modify": [ASSIGN_RE.sub("", x).strip() for x in modify],
             "assign": [ASSIGN_RE.search(x).group(1) if ASSIGN_RE.search(x) else None for x in modify],
             "func": fields.get("func") or None,
-            "open": fields.get("open") or None,
-            "contract": fields.get("contract") or None,
             "volatile": [x.strip() for x in fields.get("volatile", "").split(",") if x.strip()],
             "oracle": oracle,
         })
@@ -241,47 +231,29 @@ def parse_entities(md_text):
     return [l.strip() for l in section(md_text, "Entities").splitlines() if l.strip().startswith("[")]
 
 
-def parse_discarded(md_text):
-    """`discarded: <node>.<output> — <reason>` lines of `## Boundary` (v2.6, §3.7)."""
-    out = []
-    for line in section(md_text, "Boundary").splitlines():
-        m = re.match(r"\s*discarded:\s*(\S+)\s*(?:—|-)\s*(.*)$", line)
-        if m:
-            out.append({"port": m.group(1), "reason": m.group(2).strip()})
-    return out
-
-
 def load_graphs(texts):
-    """Merge several graph files that share one repo: nodes by name (first wins, a different
-    contract for the same name is reported), edges and entities concatenated.
-    The edges of `## Boundary` (v2.6) are edges with `boundary: True`, and their `[Outside: …]`
-    items are entities."""
+    """Merge several graph files that share one repo: nodes by name (the first wins; the same name with
+    another contract or another `req:` is a conflict), edges and entities concatenated."""
     nodes, edges, entities, conflicts = {}, [], [], []
     for md in texts:
-        file_nodes = parse_graph(md)
-        for n in file_nodes:
+        for n in parse_graph(md):
             if n["name"] in nodes:
-                a, b = nodes[n["name"]], n
-                if (a["in"], a["out"]["type"], a["module"]) != (b["in"], b["out"]["type"], b["module"]):
+                a = nodes[n["name"]]
+                if (a["in"], a["out"]["type"], a["module"], a["reqs"]) != (n["in"], n["out"]["type"], n["module"], n["reqs"]):
                     conflicts.append(n["name"])
-                else:  # same node seen by two flows: each brings its own thread
-                    a["examples"] += [e for e in b["examples"] if e not in a["examples"]]
+                else:  # the same node in two flows: each brings its own thread
+                    a["examples"] += [e for e in n["examples"] if e not in a["examples"]]
             else:
                 nodes[n["name"]] = n
         entities += parse_entities(md)
     names = list(nodes)
     for md in texts:
         edges += parse_edges(md, names)
-        outer = parse_edges(md, names, "Boundary")
-        for e in outer:
-            e["boundary"] = True
-            entities += [ep["entity"] for ep in (e["src"], e["dst"]) if ep["entity"]]
-        edges += outer
     return list(nodes.values()), edges, list(dict.fromkeys(entities)), conflicts
 
 
-def parse_edges(md_text, node_names, title="Edges"):
-    """Every `A ──▶ B` line of `## <title>`; a following `when:` line is attached to the edge.
+def parse_edges(md_text, node_names):
+    """Every `A ──▶ B` line of `## Edges`; a following `when:` line is attached to the edge.
     An endpoint is an entity `[...]` with an optional `.field`, or `<node>[.<port>]`, the node being the
     longest known prefix."""
     def endpoint(text):
@@ -296,20 +268,17 @@ def parse_edges(md_text, node_names, title="Edges"):
         return {"entity": None, "field": None, "node": None, "port": None, "unknown": text}
 
     edges = []
-    for line in section(md_text, title).splitlines():
+    for line in section(md_text, "Edges").splitlines():
         line = line.strip()
         if ARROW in line:
             src, dst = line.split(ARROW, 1)
-            q = re.match(r"(\[\d+→\w+\])\s*", dst.strip())  # quantifier such as [1→N]
-            dst = dst.strip()[q.end():] if q else dst
-            edges.append({"src": endpoint(src), "dst": endpoint(dst), "quantifier": q.group(1) if q else None,
-                          "when": None, "raw": line, "boundary": False})
+            edges.append({"src": endpoint(src), "dst": endpoint(dst), "when": None, "raw": line})
         elif line.startswith("when:") and edges:
             edges[-1]["when"] = line[len("when:"):].strip()
     return edges
 
 
-# ---------- full parse and warnings (Notation-Grammar.md §8, §9) ----------
+# ---------- full parse and the lines that it does not read ----------
 
 def numbered_sections(md_text):
     """{title: [(line number, line)]} for each `## ` section; a second section with the same title is not read."""
@@ -375,52 +344,16 @@ def parse_entity_blocks(md_text):
     return out
 
 
-def parse_routes(md_text):
-    """The `route:` blocks of `## Routes`: name, entries, desc (Notation-Grammar.md §6.1)."""
-    out = []
-    for block in numbered_blocks(numbered_sections(md_text).get("Routes", [])):
-        r = {"name": None, "entries": [], "desc": None}
-        for _, line in block:
-            m = re.match(r"(\w+):\s*(.*)$", line.strip())
-            if not m:
-                continue
-            if m.group(1) == "route" and r["name"] is None:
-                r["name"] = m.group(2).strip() or None
-            elif m.group(1) == "entry" and not r["entries"]:
-                r["entries"] = [e.strip() for e in split_entries(m.group(2)) if e.strip()]
-            elif m.group(1) == "desc" and r["desc"] is None:
-                r["desc"] = m.group(2).strip() or None
-        if r["name"]:
-            out.append(r)
-    return out
-
-
-def split_entries(text):
-    """Split at each comma that is not inside `[ … ]` (an entity name can hold a comma)."""
-    parts, depth, cur = [], 0, ""
-    for ch in text:
-        depth += ch == "["
-        depth -= ch == "]"
-        if ch == "," and depth == 0:
-            parts.append(cur)
-            cur = ""
-        else:
-            cur += ch
-    return parts + [cur]
-
-
 def example_source(line):
-    """The source in the parentheses of an `examples:` line: {thread, step, root, marker}.
-    `(T1, t1a)`, `(U2, U2.4, root TuiApp.on_button_pressed)`, `(synthetic)`, `(T-8, inferred)`."""
-    src = {"thread": None, "step": None, "root": None, "marker": None}
+    """The source in the parentheses of an `examples:` line: {thread, step, root}.
+    `(T1, t1a)`, `(U2, U2.4, root TuiApp.on_button_pressed)`."""
+    src = {"thread": None, "step": None, "root": None}
     m = re.match(r"\s*\(([^)]*)\)", line)
     if not m:
         return src
     for i, part in enumerate(p.strip() for p in m.group(1).split(",")):
         word = part.split(" ")[0]
-        if part in MARKERS:
-            src["marker"] = part
-        elif word == "root" and len(part.split()) == 2:
+        if word == "root" and len(part.split()) == 2:
             src["root"] = part.split()[1]
         elif i == 0:
             src["thread"] = part
@@ -445,118 +378,85 @@ def parse_findings(md_text):
     return out
 
 
-def graph_warnings(md_text):
-    """The warnings G1–G7 of Notation-Grammar.md §9: [{code, line, text}], in the order of the lines."""
+def unread(md_text):
+    """The lines that the parser does not read: [{line, text}]. A tool skips such a line with no word,
+    so each one is an error. (In the app data audit, two merged blocks lost a node from the recording.)"""
     secs = numbered_sections(md_text)
-    names = [n["name"] for n in parse_graph(md_text)]
-    entities = set(parse_entities(md_text)) | {ep["entity"] for e in parse_edges(md_text, names, "Boundary")
-                                               for ep in (e["src"], e["dst"]) if ep["entity"]}
-    w = []
+    out = []
 
-    def warn(code, line, text):
-        w.append({"code": code, "line": line, "text": text})
+    def miss(i, text):
+        out.append({"line": i, "text": text})
 
-    def known(end, declared_only):
-        end = re.sub(r"^\[\d+→\w+\]\s*", "", end.strip())
-        e = ENTITY_END.match(end)
-        if e:
-            return not declared_only or e.group(1) in entities
-        return any(end == n or end.startswith(n + ".") for n in names)
-
-    def fields(block, keys, where, twice):
+    def fields(block, keys, where, repeat=()):
         seen = set()
         for i, line in block[1:]:
             f = re.match(r"(\w+):", line)
             key = f.group(1) if f else None
             if key not in keys:
-                warn("G2", i, f"`{line.strip()[:40]}` in {where}: not a field of the grammar")
-            elif key in seen and twice and key not in REPEAT_KEYS:  # one `examples:` line for each pair
-                warn("G3", i, f"`{key}:` two times in {where}: the second line is skipped")
+                miss(i, f"`{line.strip()[:40]}` in {where}: not a field")
+            elif key in seen and key not in repeat:
+                miss(i, f"`{key}:` a second time in {where}")
             seen.add(key)
         return seen
 
     for i, line in enumerate(md_text.splitlines(), 1):
         m = re.match(r"## (.*?)\s*$", line)
         if m and m.group(1) not in SECTIONS:
-            warn("G1", i, f"section `{m.group(1)}` is not part of the graph")
+            miss(i, f"section `{m.group(1)}`")
     for block in numbered_blocks(secs.get("Nodes", [])):
         i, first = block[0][0], block[0][1].strip()
         if first.startswith("[") or ":" in first:
-            warn("G7", i, f"`{first[:40]}`: a block in `## Nodes` with no name line")
-        elif not {"in", "out"} & fields(block, NODE_KEYS + ("examples",), f"node `{first}`", True):
-            warn("G7", i, f"node `{first}` has no `in:` and no `out:`")
-        else:
-            node_fields(block, first, warn)
-    for block in numbered_blocks(secs.get("Entities", [])):
-        rest = [(i, l) for i, l in block if not re.match(r"\s+\w+:", l)]  # the lines under `sequence:`
-        if block[0][1].startswith("["):
-            fields(rest, ENTITY_KEYS, f"entity `{block[0][1].strip()}`", False)
-            for i, line in rest:
-                if not line.strip().startswith("offers:"):
-                    continue
-                o = OFFER.match(line.strip())
-                if not o:
-                    warn("G9", i, f"`{line.strip()[:50]}`: not of the form offers: (source) \"control\" → node")
-                elif not block[0][1].startswith("[Interface:"):
-                    warn("G9", i, f"`offers:` on `{block[0][1].strip()}`, which is not an `[Interface]` entity")
-                elif o.group(3) not in names:
-                    warn("G9", i, f"offer `{o.group(2)}`: `{o.group(3)}` is not a node of `## Nodes`")
-    for title in ("Edges", "Boundary"):
-        edge_before = False
-        for i, line in secs.get(title, []):
-            s = line.strip()
-            if ARROW in s:
-                edge_before = True
-                for end in s.split(ARROW, 1):
-                    end = re.sub(r"^\[\d+→\w+\]\s*", "", end.strip())
-                    e = ENTITY_END.match(end)
-                    if e and e.group(2).strip() and not FIELD.match(e.group(2).strip()):
-                        warn("G12", i, f"`{end}`: after the entity, `{e.group(2).strip()}` is not `.` and a name")
-                    elif not known(end, False):
-                        warn("G4", i, f"`{end}` is not a node, a port of a node or an entity")
-            elif s.startswith("when:") and not edge_before:
-                warn("G5", i, "`when:` with no edge before it")
-    for block in numbered_blocks(secs.get("Routes", [])):
-        i, first = block[0][0], block[0][1].strip()
-        fields(block, ROUTE_KEYS, f"route `{first[:40]}`", True)
-        entry = [l for _, l in block if l.strip().startswith("entry:")]
-        if not entry or not entry[0].split(":", 1)[1].strip():
-            warn("G8", i, f"`{first[:40]}`: a route with no `entry:`")
+            miss(i, f"`{first[:40]}`: a block in `## Nodes` with no name line")
             continue
-        for e in split_entries(entry[0].split(":", 1)[1]):
-            e = e.strip()
-            if not (e in names or (e.startswith("[Outside:") and e in entities) or CODE_NAME.match(e)):
-                warn("G8", i, f"entry `{e}` is not a node, an `[Outside: …]` item of `## Boundary` or a code name")
+        if not {"in", "out"} & fields(block, NODE_KEYS + ("examples",), f"node `{first}`", REPEAT_KEYS):
+            miss(i, f"node `{first}` has no `in:` and no `out:`")
+            continue
+        value = lambda key: next((l.split(":", 1)[1].strip() for _, l in block if l.startswith(key + ":")), "")  # noqa: E731
+        names = {parse_decl(x)["name"] for x in split_top(value("in"), ";") if x.strip()}
+        names |= set(parse_out(value("out"))["names"]) | {"out"}
+        for j, line in block[1:]:
+            if line.startswith("volatile:"):   # the recorder masks nothing for such an item
+                for item in (x.strip() for x in line.split(":", 1)[1].split(",") if x.strip()):
+                    if item.split(".")[0] not in names:
+                        miss(j, f"volatile `{item}` of `{first}`: not an input, an output or `out`")
+    for block in numbered_blocks(secs.get("Entities", [])):
+        first = block[0][1].strip()
+        if not first.startswith("["):
+            miss(block[0][0], f"`{first[:40]}`: a block in `## Entities` with no `[Kind: name]` line")
+            continue
+        rest = [(i, l) for i, l in block if not re.match(r"\s+\w+:", l)]  # the lines under `sequence:`
+        fields(rest, ENTITY_KEYS, f"entity `{first}`", ("offers",))
+        for i, line in rest[1:]:
+            if line.strip().startswith("offers:") and not OFFER.match(line.strip()):
+                miss(i, f"`{line.strip()[:50]}`: not of the form offers: (source) \"control\" → node")
+    edge_before = False
+    for i, line in secs.get("Edges", []):
+        s = line.strip()
+        if not s or s.startswith(("#", ">")):
+            continue
+        if ARROW in s:
+            edge_before = True
+            for end in s.split(ARROW, 1):
+                e = ENTITY_END.match(end.strip())
+                if e and e.group(2).strip() and not FIELD.match(e.group(2).strip()):
+                    miss(i, f"`{end.strip()}`: after the entity, `{e.group(2).strip()}` is not `.` and a name")
+        elif s.startswith("when:"):
+            if not edge_before:
+                miss(i, "`when:` with no edge before it")
+        else:
+            miss(i, f"`{s[:40]}`: not an edge")
     for block in numbered_blocks(secs.get("Findings", [])):
         i, first = block[0][0], block[0][1].strip()
         if not re.match(r"finding\s+\S+", first):
-            warn("G7", i, f"`{first[:40]}`: a block in `## Findings` with no `finding` line")
+            miss(i, f"`{first[:40]}`: a block in `## Findings` with no `finding` line")
             continue
-        fields(block, FINDING_KEYS, f"finding `{first.split()[1]}`", True)
-        for j, line in block[1:]:
-            a = re.match(r"anchor:\s*(.*)$", line)
-            if a and not all(known(end, True) for end in a.group(1).split(ARROW)):
-                warn("G6", j, f"anchor `{a.group(1).strip()}` is not in the graph")
-    return sorted(w, key=lambda x: x["line"])
-
-
-def node_fields(block, name, warn):
-    """G10 and G11: a `volatile:` item must start with an input, an output name or `out`; an `oracle:` line
-    must name a source."""
-    value = lambda key: next((l.split(":", 1)[1].strip() for _, l in block if l.startswith(key + ":")), "")  # noqa: E731
-    ins = {parse_decl(x)["name"] for x in split_top(value("in"), ";") if x.strip()}
-    outs = set(parse_out(value("out"))["names"]) | {"out"}
-    for i, line in block[1:]:
-        if line.startswith("volatile:"):
-            for item in (x.strip() for x in line.split(":", 1)[1].split(",")):
-                if item.split(".")[0] not in ins | outs:
-                    warn("G10", i, f"volatile `{item}` of `{name}`: not an input, an output or `out`")
-        elif line.startswith("oracle:") and not line.split(":", 1)[1].strip():
-            warn("G11", i, f"an empty `oracle:` line in `{name}`")
+        fields(block, FINDING_KEYS, f"finding `{first.split()[1]}`")
+    return sorted(out, key=lambda x: x["line"])
 
 
 def parse_text(md_text):
-    """The full parse of one graph text, in the shape of Notation-Grammar.md §8."""
+    """The full parse of one graph text, in the shape of Notation-Grammar.md: nodes, entities, edges,
+    findings, and the lines that the parser does not read."""
     nodes, edges, entities, _ = load_graphs([md_text])
     blocks = {e["name"]: e for e in parse_entity_blocks(md_text)}
     end = lambda p: {k: p[k] for k in ("node", "port", "entity", "field")}  # noqa: E731
@@ -564,20 +464,16 @@ def parse_text(md_text):
         "nodes": [{"name": n["name"], "reqs": n["reqs"], "in": n["in"], "out": n["out"], "func": n["func"],
                    "module": n["module"], "examples": n["examples"],
                    "modify": [{"target": t, "assign": a} for t, a in zip(n["modify"], n["assign"])],
-                   "inner": n["inner"], "open": n["open"], "contract": n["contract"],
                    "volatile": n["volatile"], "oracle": n["oracle"]} for n in nodes],
         "entities": [blocks.get(e, {"name": e, "kind": entity_kind(e), "in": None, "desc": None, "sequence": [], "offers": []})
                      for e in entities],
-        "edges": [{"src": end(e["src"]), "dst": end(e["dst"]), "quantifier": e["quantifier"], "when": e["when"],
-                   "boundary": e["boundary"], "raw": e["raw"]} for e in edges],
-        "discarded": parse_discarded(md_text),
-        "routes": parse_routes(md_text),
+        "edges": [{"src": end(e["src"]), "dst": end(e["dst"]), "when": e["when"], "raw": e["raw"]} for e in edges],
         "findings": parse_findings(md_text),
-        "warnings": graph_warnings(md_text),
+        "unread": unread(md_text),
     }
 
 
-# ---------- C15: call resolution and O2 lifting ----------
+# ---------- the real calls: call resolution and lifting ----------
 
 def index_defs(parsed, skip_tests=True):
     """{def_id: info} with def_id = `file::qualname`, plus lookup tables for call resolution."""
@@ -758,23 +654,15 @@ def norm_default(d):
     return None if d is None else d.replace(" ", "").replace("'", '"')
 
 
-def diff(marks, graph_nodes, edges, lifted, top_level, entities=None, conflicts=()):
+def diff(marks, graph_nodes, lifted, top_level, conflicts=()):
+    """The differences between the marks, the defs and the graph contracts, and the list of the real calls."""
     findings = []
 
     def add(kind, where, msg):
         findings.append({"kind": kind, "where": where, "msg": msg})
 
     for name in conflicts:
-        add("graph_node_conflict", name, f"`{name}` is declared in two graph files with different contracts")
-    # C10 (with Q28): every `modify:` target is a declared entity or one of the node's own inputs
-    for node in graph_nodes:
-        inputs = {p["name"] for p in node["in"]}
-        for target in node.get("modify", []):
-            if target.startswith("["):
-                if entities is not None and target not in entities:
-                    add("modify_unknown_target", node["name"], f"`{target}` in `modify:` of `{node['name']}` is not a declared entity")
-            elif re.split(r"[.\[]", target)[0] not in inputs:
-                add("modify_unknown_target", node["name"], f"`{target}` in `modify:` of `{node['name']}` is neither an entity nor an input")
+        add("graph_node_conflict", name, f"`{name}` is declared in two graph files with another contract or `req:`")
 
     by_mark = {}
     for m in marks:
@@ -801,15 +689,8 @@ def diff(marks, graph_nodes, edges, lifted, top_level, entities=None, conflicts=
             continue
         where = f"{m['file']}:{m['line']}"
         d = m["def"]
-
         if node["module"] and m["file"] != node["module"]:
             add("module_mismatch", where, f"graph says `{node['module']}`")
-
-        if node["reqs"] is None:
-            add("graph_req_field_missing", where, f"`{node['name']}` has no `req:` in the graph")
-        elif m["reqs"] is None or sorted(m["reqs"]) != sorted(node["reqs"]):
-            add("req_mismatch", where, f"mark {m['reqs']} vs graph {node['reqs']}")
-
         if d is None:
             continue
         code_params = {p["name"]: p for p in d["params"]}
@@ -851,108 +732,54 @@ def diff(marks, graph_nodes, edges, lifted, top_level, entities=None, conflicts=
             elif level == "loose":
                 add("info_type_loose", where, f"output: graph `{g_out}` vs code `{c_out}`")
 
-    # edges: endpoints must exist; a port must be an input or output of its node
-    linked = set()
-    for e in edges:
-        for side in ("src", "dst"):
-            ep = e[side]
-            if ep.get("unknown"):
-                add("edge_unknown_endpoint", e["raw"], f"`{ep['unknown']}` is neither an entity nor a graph node")
-            elif ep["node"] and ep["port"]:
-                n = nodes[ep["node"]]
-                ports = {p["name"] for p in n["in"]} | set(n["out"]["names"])
-                if ep["port"].split(".")[0] not in ports:
-                    add("edge_unknown_port", e["raw"], f"`{ep['port']}` is not an input or output of `{ep['node']}`")
-        if e["src"]["node"] and e["dst"]["node"]:
-            linked.add(frozenset((e["src"]["node"], e["dst"]["node"])))
-
-    # C15: lifted calls against interior: or an edge between the two nodes
-    c15 = []
-    for (x, y), sites in sorted(lifted.items()):
-        if x in nodes and y in nodes[x]["inner"]:
-            via = "inner"
-        elif frozenset((x, y)) in linked:
-            via = "edge"
-        else:
-            via = None
-            also = top_level.get(y)
-            note = ""
-            if also:
-                more = f" (+{len(also) - 5} more)" if len(also) > 5 else ""
-                note = f"; also called at top level: {', '.join(also[:5])}{more}"
-            add("c15_divergence", sites[0], f"`{x}` → `{y}` (sites: {', '.join(sites)}) not declared in `inner:` of `{x}` nor as an edge{note}")
-        c15.append({"caller": x, "callee": y, "sites": sites, "declared_via": via})
-    owners = {}
-    for name, n in nodes.items():
-        for y in n["inner"]:
-            owners.setdefault(y, []).append(name)
-            if y not in nodes:
-                add("interior_unknown_node", name, f"`{y}` in `inner:` of `{name}` is not a graph node")
-            elif (name, y) not in lifted:
-                add("info_c15_absence", name, f"`inner:` of `{name}` declares `{y}`, no lifted call found")
-    for y, who in owners.items():
-        if len(who) > 1:
-            add("info_declared_in_two_interiors", y, f"`{y}` declared inside {', '.join(f'`{w}`' for w in who)}: two call sites by design")
-    return findings, c15
+    calls = [{"caller": x, "callee": y, "sites": sites} for (x, y), sites in sorted(lifted.items())]
+    return findings, calls
 
 
 KIND_TITLES = {
-    "graph_node_without_mark": "Graph node without mark",
+    "graph_node_without_mark": "Graph node without mark (no code yet)",
     "mark_without_graph_node": "Mark without graph node",
     "duplicate_mark": "Same node marked twice",
     "dangling_mark": "Mark not bound to a def",
     "mark_name_ne_qualname": "Mark name differs from def qualname",
     "module_mismatch": "Module/file mismatch",
-    "req_mismatch": "Requirement trace mismatch (mark vs graph)",
-    "graph_req_field_missing": "Graph node has no `req:` field",
-    "graph_examples_missing": "Graph node has no `examples:` (required field, §3.1)",
-    "graph_node_conflict": "Same node declared with different contracts in two graph files",
-    "modify_unknown_target": "`modify:` target is neither a declared entity nor an input (C10, Q28)",
+    "graph_examples_missing": "Graph node has no `examples:`",
+    "graph_node_conflict": "Same node with another contract or `req:` in two graph files",
     "input_missing_in_code": "Input in graph, not a parameter in code",
     "input_missing_in_graph": "Parameter in code, not an input in graph",
     "input_type_mismatch": "Input type mismatch",
     "input_untyped_in_graph": "Input untyped in graph (cannot compare)",
     "input_untyped_in_code": "Parameter unannotated in code (cannot compare)",
-    "default_mismatch": "Default value mismatch (C12)",
+    "default_mismatch": "Default value mismatch",
     "output_type_mismatch": "Output type mismatch",
     "output_untyped_in_code": "Return unannotated in code (cannot compare)",
-    "edge_unknown_endpoint": "Edge endpoint is not a node or entity",
-    "edge_unknown_port": "Edge port is not an input or output of its node",
-    "interior_unknown_node": "`inner:` names an unknown node",
-    "c15_divergence": "C15 divergence: lifted call not declared in the graph",
     "info_type_loose": "Info: graph names the bare container only (loose match)",
-    "info_c15_absence": "Info: declared in `inner:`, no lifted call found (C15 absence)",
-    "info_declared_in_two_interiors": "Info: node declared in two `inner:` lists",
 }
 
 
-def render_report(findings, marks, graph_nodes, edges, c15, top_level, ambiguous, failed):
+def render_report(findings, marks, graph_nodes, calls, top_level, ambiguous, failed):
     drift = sum(not f["kind"].startswith("info_") for f in findings)
-    out = ["# Code-Wire DDR diff report", "",
+    out = ["# Code-Wire extractor report", "",
            f"- Marks found: {len(marks)}",
-           f"- Graph nodes parsed: {len(graph_nodes)} · edges: {len(edges)} ({sum(1 for e in edges if e['when'])} with `when:`)",
-           f"- Nodes with `examples:`: {sum(1 for n in graph_nodes if n['examples'])}/{len(graph_nodes)} "
-           f"({sum(len(n['examples']) for n in graph_nodes)} pairs)",
-           f"- Lifted calls between marked nodes (O2): {len(c15)} "
-           f"({sum(1 for c in c15 if c['declared_via'])} declared, {sum(1 for c in c15 if not c['declared_via'])} divergent)",
+           f"- Graph nodes parsed: {len(graph_nodes)}",
+           f"- Real calls between marked nodes: {len(calls)}",
            f"- Findings: {len(findings)} ({drift} drift, {len(findings) - drift} info)",
            f"- Ambiguous call resolutions (a name matched several defs): {ambiguous}",
            f"- Files that failed to parse: {len(failed)}", "",
            "Type normalisation: spaces and quotes dropped; `List/Dict/Tuple/Set` -> builtins; "
            "`X | None` and graph `X?` -> `Optional[X]`; graph `(Callable) A->B` -> `Callable[[A], B]`; graph "
            "`tuple(A a, B b)` -> `tuple[A, B]`. A bare graph container (`dict`) against a parameterised code "
-           "type (`dict[str, Any]`), at top level or nested, is info (loose match), not drift.", "",
+           "type (`dict[str, Any]`) is info (loose match), not drift.", "",
            "Call resolution is name-based (`f()`, `Class()` -> `__init__`, `self.m()`, `x.m()` -> top-level `m` "
            "or a marked method `m`); dynamic calls and callables passed as values are not seen. Tests excluded.", "",
            "## Counts", "", "| Kind | Count |", "|---|---|"]
     kinds = [k for k in KIND_TITLES if any(f["kind"] == k for f in findings)]
     for k in kinds:
         out.append(f"| {KIND_TITLES[k]} | {sum(f['kind'] == k for f in findings)} |")
-    out += ["", "## C15 · lifted calls (O2)", "", "| Caller | Callee | Sites | Declared via |", "|---|---|---|---|"]
-    for c in c15:
-        out.append(f"| `{c['caller']}` | `{c['callee']}` | {', '.join(c['sites'])} | {c['declared_via'] or '**divergence**'} |")
+    out += ["", "## Real calls between marked nodes", "", "| Caller | Callee | Sites |", "|---|---|---|"]
+    out += [f"| `{c['caller']}` | `{c['callee']}` | {', '.join(c['sites'])} |" for c in calls]
     if top_level:
-        out += ["", "Top-level sites (orchestration with no marked node above):", ""]
+        out += ["", "Top-level sites (no marked node above them):", ""]
         out += [f"- `{y}`: {', '.join(s)}" for y, s in sorted(top_level.items())]
     for k in kinds:
         out += ["", f"## {KIND_TITLES[k]}", ""]
@@ -967,20 +794,25 @@ def main(argv=None):
     ap.add_argument("--repo", required=True, type=Path)
     ap.add_argument("--graph", required=True, type=Path, action="append",
                     help="graph file; repeat for several graphs over the same repo")
+    ap.add_argument("--path", action="append", default=[],
+                    help="keep only the marks in this folder or file of the repo; repeat for more")
     ap.add_argument("--out", required=True, type=Path)
     args = ap.parse_args(argv)
     parsed, failed = parse_files(args.repo)
     marks = extract_marks(parsed)
-    graph_nodes, edges, entities, conflicts = load_graphs([g.read_text(encoding="utf-8") for g in args.graph])
+    if args.path:   # one slice: the marks of other slices are not findings of this one (second-project M-13)
+        keep = [p.replace("\\", "/").strip("/") for p in args.path]
+        marks = [m for m in marks if any(m["file"] == k or m["file"].startswith(k + "/") for k in keep)]
+    graph_nodes, _, _, conflicts = load_graphs([g.read_text(encoding="utf-8") for g in args.graph])
     lifted, top_level, ambiguous = lift_calls(parsed, marks)
-    findings, c15 = diff(marks, graph_nodes, edges, lifted, top_level, entities, conflicts)
+    findings, calls = diff(marks, graph_nodes, lifted, top_level, conflicts)
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "extract.json").write_text(json.dumps(
-        {"marks": marks, "graph_nodes": graph_nodes, "edges": edges, "c15": c15, "top_level_sites": top_level,
+        {"marks": marks, "graph_nodes": graph_nodes, "calls": calls, "top_level_sites": top_level,
          "findings": findings, "parse_failures": failed}, indent=2, ensure_ascii=False), encoding="utf-8")
     (args.out / "diff-report.md").write_text(
-        render_report(findings, marks, graph_nodes, edges, c15, top_level, ambiguous, failed), encoding="utf-8")
-    print(f"marks={len(marks)} graph_nodes={len(graph_nodes)} edges={len(edges)} lifted={len(c15)} "
+        render_report(findings, marks, graph_nodes, calls, top_level, ambiguous, failed), encoding="utf-8")
+    print(f"marks={len(marks)} graph_nodes={len(graph_nodes)} calls={len(calls)} "
           f"findings={len(findings)} parse_failures={len(failed)}")
 
 

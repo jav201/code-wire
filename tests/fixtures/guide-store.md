@@ -74,18 +74,14 @@ desc: the alarm lines, one for each line
 ## Edges
 
 [I/O: log file] ──▶ read_lines.path
-read_lines.lines ──▶ [1→N] LogStore.push_line.line
+read_lines.lines ──▶ LogStore.push_line.line
 read_lines.lines ──▶ LogStore.load.lines
 LogStore.push_line ──▶ entry_kind.line
 entry_kind.kind ──▶ LogStore.push_line
 LogStore.load ──▶ entry_kind.line
 entry_kind.kind ──▶ LogStore.load
 [Data: LogStore.stack_a] ──▶ write_alarms.alarms
-
-## Boundary
-
 [Outside: logOpen event] ──▶ LogStore.clear
-discarded: write_alarms.count — the two events do not show the count
 
 ## Findings
 

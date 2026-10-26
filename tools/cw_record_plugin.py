@@ -3,7 +3,7 @@ while real tests run, so `codewire_examples.py` can check the graph's `ejemplos:
 
 Generic: the nodes come from the graph files (name + `module:`), not from a hand-written list.
     CW_GRAPHS  graph .md files, separated by os.pathsep
-    CW_OUT     trace JSON to write (default cw-trace.json)
+    CW_OUT     trace JSON to write (no file when it is not set)
     CW_MAX     calls kept per node (default 3)
 The wrapped function returns exactly what the original returns; nothing in the repo is edited.
     CW_MAX_EVENTS  events kept per (root, node) pair in the event log (default 50)
@@ -11,6 +11,9 @@ The wrapped function returns exactly what the original returns; nothing in the r
 A node with no module or no def yet (a NEW node in forward) is skipped and listed in the trace key `_skipped`.
 Each call is also an event of the log (`codewire_events.py`): its root, its parent and a hash.
 The limit CW_MAX applies to each (root, node) pair, so each entry point keeps its own examples.
+After the call, `after` holds each input that `modify:` names, and (A2g) each `[Data: Class.attribute]`
+entity of `modify:` when the node is a method of that class: the value of `self.attribute` when the call
+returns. A write that a worker or a later callback makes is not in it.
 """
 import dataclasses
 import functools
@@ -18,6 +21,7 @@ import importlib
 import inspect
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -25,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import codewire_events as events  # noqa: E402
 import codewire_extract as cw  # noqa: E402
 
-OUT = os.environ.get("CW_OUT", "cw-trace.json")
+OUT = os.environ.get("CW_OUT")   # the trace file only when asked: no file in the repository by default
 MAX_CALLS = int(os.environ.get("CW_MAX", "3"))
 MAX_EVENTS = int(os.environ.get("CW_MAX_EVENTS", "50"))
 TRACE = {}  # node name -> list of calls
@@ -111,9 +115,25 @@ def volatile_paths(node):
     return paths
 
 
+def self_entities(node):
+    """A2g: the `[Data: Class.attribute]` targets of `modify:` when the node is a method of `Class`:
+    [(entity, [attribute, …])]. An entity of another class, or a node that is a function, gives none."""
+    owner = node["name"].rsplit(".", 1)[0] if "." in node["name"] else None
+    out = []
+    for target in node.get("modify", []):
+        m = re.match(r"^\[Data:\s*([A-Za-z_][\w.]*)\]$", target.strip())
+        if not m or owner is None:
+            continue
+        cls, _, attrs = m.group(1).partition(".")
+        if cls == owner.split(".")[-1] and attrs:
+            out.append((target.strip(), attrs.split(".")))
+    return out
+
+
 def wrap(node, fn):
     sig = inspect.signature(fn)
     volatile = volatile_paths(node)
+    entities = self_entities(node)
     # Q28: a `modify:` on an input (`mem_map`, `document.entries[].status`) is recorded after the call
     modified = [m.split(".")[0].split("[")[0] for m in node["modify"] if m and not m.startswith("[")]
 
@@ -151,6 +171,15 @@ def wrap(node, fn):
         call["out"] = lit(a[0] if is_init else r)
         if bound is not None:
             after = {n: lit(bound.arguments[n]) for n in modified if n in bound.arguments}
+            obj = bound.arguments.get("self")
+            for entity, attrs in entities if obj is not None else ():
+                value = obj
+                try:
+                    for a in attrs:
+                        value = getattr(value, a)
+                except AttributeError:
+                    continue   # the object has no such attribute: nothing to keep
+                after[entity] = lit(value)
             if after:
                 call["after"] = after
         files = files_in(list(args.values()) + [r])
@@ -208,5 +237,6 @@ def pytest_unconfigure(config):
 def save(events_path=None, trace_path=None):
     """Write the event log and the trace."""
     events.write(events_path, skipped=TRACE.get("_skipped", []))
-    with open(trace_path or OUT, "w", encoding="utf-8") as f:
-        json.dump(TRACE, f, indent=1, ensure_ascii=False, default=str)
+    if trace_path or OUT:
+        with open(trace_path or OUT, "w", encoding="utf-8") as f:
+            json.dump(TRACE, f, indent=1, ensure_ascii=False, default=str)

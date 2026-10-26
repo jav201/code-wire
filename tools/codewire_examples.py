@@ -1,4 +1,4 @@
-"""Code-Wire examples check: are the graph's `examples:` (literal thread, Metodologia.md §3.1) still
+"""Code-Wire examples check: are the graph's `examples:` (literal thread, Metodologia.md §2) still
 what the code produces?
 
 Each `ejemplos:` line names its thread, e.g. `(AC-1) ...`. For a thread with a recorded trace
@@ -10,13 +10,15 @@ Each `ejemplos:` line names its thread, e.g. `(AC-1) ...`. For a thread with a r
 Quoted text of 1 or 2 characters (`"ok"`) must equal a whole recorded string, not a part of one.
     `6`             a decimal number in backticks -> compared as an integer (v2.6)
     `30.0`          a float in backticks -> compared with a tolerance (A1)
-Prose around the anchors is not checked. A line marked «inferred» or «synthetic» is not observed: skipped.
+Prose around the anchors is not checked. `True`, `False` and `None` in backticks must equal a whole
+recorded value (the F6 test: a line about a boolean result could not fail).
 A line with no anchor is `no_anchor`, not `ok`. A node that the recorder skipped (no def yet) is `no_def`.
 v2.6: a bare number (not in backticks, quotes or parentheses) gets a warning, because the check does not
 compare it. A1: a recorded string matches in its own form, and also with each backslash as `/`:
 a Windows path matches, and so does a Markdown escape before a dot. A text anchor and a recorded
-string are compared with each run of spaces as one space. The report also gives the status of each
-node: NEW (the recorder skipped it: no def), CHANGED (a def and at least one `synthetic` line) or SHIPPED.
+string are compared with each run of spaces as one space. The report starts with the count of the lines
+that no recording backs. When a line drifts on a call whose value the recorder cut (40 items, 4000
+characters), the detail says so.
 A3a: a line whose source names its root (`(U2, U2.4, root TuiApp.on_button_pressed)`) compares only with
 the recorded calls of that root; with no such call, the line is `root_not_run`.
 
@@ -51,8 +53,6 @@ def near(a, b):
     return math.isclose(a, b, rel_tol=1e-9, abs_tol=1e-9)
 
 
-SYNTHETIC = re.compile(r"\bsynthetic\b")
-INFERRED = re.compile(r"\binferred\b")
 PAIR = re.compile(r"(0x[0-9A-Fa-f]+)\]?\s*[:=]\s*(0x[0-9A-Fa-f]+)\b")
 
 
@@ -77,6 +77,9 @@ def anchors(line):
             continue
         if m.group(1) is not None and FLOAT.fullmatch(t.strip()):  # `30.0`: a float anchor (A1)
             floats.append(float(t))
+            continue
+        if m.group(1) is not None and t.strip() in ("True", "False", "None"):  # a whole recorded value (K5)
+            exact.append(t.strip())
             continue
         pieces = [spaced(p) for p in ELISION.split(t)]
         if len(pieces) == 1 and 0 < len(pieces[0]) < 3:
@@ -112,7 +115,7 @@ def haystack(call):
         elif isinstance(v, list):
             stack += v
         elif isinstance(v, bool) or v is None:
-            continue
+            strings.append(repr(v))   # `True`, `False`, `None`: only an exact anchor can match it
         elif isinstance(v, int):
             ints.add(v)
             floats.append(float(v))
@@ -156,8 +159,6 @@ def check(graph_nodes, traces):
             bare = bare_numbers(line)
             if thread not in traces:
                 rows.append((node["name"], thread, "no_trace", "no recorded run for this thread", bare))
-            elif SYNTHETIC.search(line[:60]) or INFERRED.search(line[:60]):
-                rows.append((node["name"], thread, "not_observed", "marked as not observed in the run", bare))
             elif EXPECT_NONE.search(line):
                 rows.append((node["name"], thread, *expect_none(traces[thread], node["name"], src), bare))
             elif node["name"] in traces[thread].get("_skipped", []):
@@ -173,9 +174,21 @@ def check(graph_nodes, traces):
                 if src["root"]:   # A3a: a line that names its root compares only with the calls of that root
                     calls = [c for c in calls if c.get("root") == src["root"]]
                 missing = check_line(line, calls)
-                rows.append((node["name"], thread, "ok" if not missing else "drift",
-                             "" if not missing else "not in the run: " + ", ".join(f"`{x}`" for x in missing), bare))
+                detail = "" if not missing else "not in the run: " + ", ".join(f"`{x}`" for x in missing)
+                if missing and any(was_cut(c) for c in calls):
+                    detail += " (the recorder cut a long value of this call: the anchor can be after the cut)"
+                rows.append((node["name"], thread, "ok" if not missing else "drift", detail, bare))
     return rows
+
+
+def was_cut(value):
+    """True when the recorder cut a part of this recorded value: a list keeps 40 items and ends with
+    `… total N`; a string keeps 4000 characters and ends with `…`."""
+    if isinstance(value, dict):
+        return any(was_cut(x) for x in value.values())
+    if isinstance(value, list):
+        return any(was_cut(x) for x in value)
+    return isinstance(value, str) and (value.startswith("… total ") or (len(value) > 4000 and value.endswith("…")))
 
 
 def step_calls(trace, node, src):
@@ -225,71 +238,53 @@ def check_offers(entities, traces):
     return rows
 
 
-def node_status(graph_nodes, traces):
-    """{node: (status, reason)} from the markers and the marks (Metodologia §3.1, rule 9).
-    The recorder skips a node with no def, so the `_skipped` lists of the traces give NEW."""
-    if not traces:
-        return {}
-    skipped = {n for t in traces.values() for n in t.get("_skipped", [])}
-    status = {}
-    for node in graph_nodes:
-        synthetic = [e for e in node["examples"] if SYNTHETIC.search(e[:60])]
-        if node["name"] in skipped:
-            status[node["name"]] = ("NEW", "no def in the code")
-        elif synthetic:
-            status[node["name"]] = ("CHANGED", f"a def and {len(synthetic)} `synthetic` line(s)")
-        else:
-            status[node["name"]] = ("SHIPPED", "a def and no `synthetic` line")
-    return status
-
-
-def render(rows, traces, status=None, offers=()):
+def render(rows, traces, offers=()):
     count = {s: sum(1 for r in rows if r[2] == s)
-             for s in ("ok", "drift", "root_not_run", "step_not_run", "not_checkable", "no_anchor", "node_not_run", "no_def", "not_observed", "no_trace")}
+             for s in ("ok", "drift", "root_not_run", "step_not_run", "not_checkable", "no_anchor", "node_not_run", "no_def", "no_trace")}
     warned = [r for r in rows if r[4]]
     out = ["# Code-Wire examples check", "",
+           f"- **Lines that no recording backs: {count['no_trace']} of {len(rows)}**",
            f"- Threads with a recorded run: {', '.join(sorted(traces)) or 'none'}",
-           f"- Example lines: {len(rows)} · ok {count['ok']} · drift {count['drift']} · root not run {count['root_not_run']} · step not run {count['step_not_run']} · not checkable {count['not_checkable']} · no anchor {count['no_anchor']}"
-           f" · node not run {count['node_not_run']} · no def {count['no_def']} · not observed {count['not_observed']}"
-           f" · no trace {count['no_trace']}",
+           f"- Checked lines: ok {count['ok']} · drift {count['drift']} · root not run {count['root_not_run']} · step not run {count['step_not_run']} · not checkable {count['not_checkable']} · no anchor {count['no_anchor']}"
+           f" · node not run {count['node_not_run']} · no def {count['no_def']}",
            f"- Lines with a bare number (a warning: the check does not compare it): {len(warned)}", "",
            "| node | thread | status | detail | bare numbers |", "|---|---|---|---|---|"]
     out += [f"| `{n}` | {t} | {s} | {d} | {', '.join(b)} |" for n, t, s, d, b in rows]
     if offers:
-        out += ["", "## Offers (A3b)", "", "| entity | control | node | thread | status | detail |", "|---|---|---|---|---|---|"]
+        out += ["", "## Offers", "", "| entity | control | node | thread | status | detail |", "|---|---|---|---|---|---|"]
         out += [f"| `{e}` | \"{c}\" | `{n}` | {t} | {s} | {d} |" for e, c, n, t, s, d in offers]
-    if status:
-        kinds = ("NEW", "CHANGED", "SHIPPED")
-        out += ["", "## Node status", "",
-                " · ".join(f"{k} {sum(1 for v in status.values() if v[0] == k)}" for k in kinds), "",
-                "| node | status | why |", "|---|---|---|"]
-        out += [f"| `{n}` | {s} | {w} |" for n, (s, w) in sorted(status.items(), key=lambda x: (kinds.index(x[1][0]), x[0]))]
     return "\n".join(out) + "\n"
 
 
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--graph", required=True, type=Path, action="append")
-    ap.add_argument("--trace", required=True, action="append", help="THREAD=trace.json, or THREAD=events.jsonl (an event log)")
+    ap.add_argument("--trace", required=True, action="append",
+                    help="THREAD=events.jsonl (or a trace.json); with no THREAD=, the log is the run of every thread")
     ap.add_argument("--out", required=True, type=Path)
     a = ap.parse_args(argv)
     texts = [g.read_text(encoding="utf-8") for g in a.graph]
     nodes, _, _, _ = cw.load_graphs(texts)
     entities = [e for t in texts for e in cw.parse_entity_blocks(t)]
+    threads = {cw.example_source(l)["thread"] for n in nodes for l in n["examples"]}
+    threads |= {o["source"]["thread"] for e in entities for o in e.get("offers", []) if o["source"]}
     traces = {}
     for t in a.trace:
-        name, _, path = t.partition("=")
+        name, _, path = t.partition("=") if "=" in t else ("", "", t)
         if path.endswith(".jsonl"):   # an event log (A2d): every recorded call, not only three
-            traces[name] = events.trace_view(events.read(path, markers=True), max_calls=None,
-                                             skipped=events.read_meta(path).get("skipped", []))
+            run = events.trace_view(events.read(path, markers=True), max_calls=None,
+                                    skipped=events.read_meta(path).get("skipped", []))
         else:
-            traces[name] = json.loads(Path(path).read_text(encoding="utf-8"))
+            run = json.loads(Path(path).read_text(encoding="utf-8"))
+        for thread in ([name] if name else sorted(x for x in threads if x)):
+            traces[thread] = run
     rows = check(nodes, traces)
     offers = check_offers(entities, traces)
-    a.out.write_text(render(rows, traces, node_status(nodes, traces), offers), encoding="utf-8")
+    a.out.write_text(render(rows, traces, offers), encoding="utf-8")
     drift = sum(1 for r in rows if r[2] in FAILS)   # a line on a root or a step that never ran does not hold
     broken = sum(1 for r in offers if r[4] in FAILS)
-    print(f"{len(rows)} example lines, {drift} drift; {len(offers)} offers, {broken} not kept -> {a.out}")
+    no_rec = sum(1 for r in rows if r[2] == "no_trace")
+    print(f"{len(rows)} example lines, {no_rec} with no recording, {drift} drift; {len(offers)} offers, {broken} not kept -> {a.out}")
     return 1 if drift or broken else 0
 
 

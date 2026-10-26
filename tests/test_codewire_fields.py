@@ -10,7 +10,6 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "tools"))
-import codewire_coherence as cc  # noqa: E402
 import codewire_extract as cw  # noqa: E402
 
 GRAPH = """## Nodes
@@ -70,42 +69,10 @@ def test_the_field_is_kept_apart_from_the_entity():
     assert edges()[3]["dst"]["field"] is None      # an edge with no field
 
 
-def test_a_field_edge_gives_no_warning_and_a_bad_field_gives_g12():
-    assert cw.graph_warnings(GRAPH) == []          # also the finding anchor with a field (G6)
+def test_a_field_edge_is_read_and_a_bad_field_is_not():
+    assert cw.unread(GRAPH) == []
     bad = GRAPH.replace("[Data: App.focused].widget ──▶", "[Data: App.focused] widget ──▶")
     bad = bad.replace("].mem_map ──▶", "].1map ──▶")
-    w = [(x["code"], x["text"]) for x in cw.graph_warnings(bad)]
-    assert [c for c, _ in w] == ["G12", "G12"]
-    assert any("`widget` is not" in t for _, t in w) and any("`.1map` is not" in t for _, t in w)
-
-
-def test_the_checks_of_the_entity_see_a_field_edge():
-    _, res = cc.check([GRAPH])
-    # the entity is the source of plan_split and write_split: no C4 from, and the entity is read
-    assert "plan_split" not in res["C4_from"] and "write_split" not in res["C4_from"]
-    assert "[Data: App.focused]" not in res["C10_orphan"]
-
-
-def test_the_view_shows_two_readers_of_two_fields():
-    nodes, e, _, _ = cw.load_graphs([GRAPH])
-    view = cc.fields(nodes, e)
-    cur = view["[Data: App.current_file]"]
-    assert cur["ranges"]["read"] == {"plan_split"} and cur["mem_map"]["read"] == {"write_split"}
-    assert cur["*"]["write"] == {"load_file"}      # `modify:` writes the whole entity
-    assert "[I/O: split files]" not in view        # no edge names a field of it
-
-
-def test_the_report_names_a_field_that_no_node_writes(tmp_path):
-    g = tmp_path / "g.md"
-    g.write_text(GRAPH, encoding="utf-8")
-    out = tmp_path / "c.md"
-    rc = cc.main(["--graph", str(g), "--out", str(out)])
-    text = out.read_text(encoding="utf-8")
-    assert "## Fields of an entity (info, A3d)" in text
-    assert "| `[Data: App.current_file]` | `ranges` | `plan_split` | — |" in text   # the whole write covers it
-    assert "| `[Data: App.focused]` | `widget` | `plan_split` | — (no node of the graph writes it) |" in text
-    # the view is info: the exit code is the same with no field edges
-    plain = GRAPH.replace("].ranges ──▶", "] ──▶").replace("].mem_map ──▶", "] ──▶").replace("].widget ──▶", "] ──▶")
-    g.write_text(plain, encoding="utf-8")
-    assert cc.main(["--graph", str(g), "--out", str(out)]) == rc
-    assert "Fields of an entity" not in out.read_text(encoding="utf-8")
+    w = [u["text"] for u in cw.unread(bad)]
+    assert len(w) == 2
+    assert any("`widget` is not" in t for t in w) and any("`.1map` is not" in t for t in w)

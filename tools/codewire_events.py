@@ -5,7 +5,9 @@ the step, the root (the entry point that started the call), the parent (the node
 literal inputs and output, and a hash of those values after the volatile parts are normalized.
 
     CW_ENTRY     regex for the name of an entry-point function (default `^(action_|on_)`)
-    CW_ROOT      folder of the project code; only frames from files in it can be a root (default: cwd)
+    CW_ROOT      folder of the project code; only frames from files in it can be a root (default: cwd).
+                 Before the hash, a path in it is written as `<ROOT>` (A2f): two checkouts of one
+                 commit give the same hashes. The event keeps the real path.
     CW_VOLATILE  more regexes for volatile text, separated by os.pathsep (temp folders and object
                  addresses are always volatile). A node can also name its volatile values in the graph
                  (`volatile:`, A3c): the event keeps them, the hash does not use them.
@@ -51,7 +53,24 @@ def _volatile():
 VOLATILE = _volatile()
 
 
+_ROOT_RX = {}
+
+
+def _root_rx():
+    """The project folder with any form of its separators, and not as the start of a longer name
+    (`app` is not in `app-cwmap`). None for a folder with fewer than two parts (a drive)."""
+    root = ROOT_DIR[0]
+    if root not in _ROOT_RX:
+        parts = [p for p in re.split(r"[\\/]+", root) if p]
+        _ROOT_RX[root] = (re.compile(r"[\\/]+".join(re.escape(p) for p in parts) + r"(?![\w.-])", re.I)
+                          if len(parts) >= 2 else None)
+    return _ROOT_RX[root]
+
+
 def normalize(text):
+    root = _root_rx()
+    if root is not None:
+        text = root.sub("<ROOT>", text)
     for rx, token in VOLATILE:
         text = rx.sub(token, text)
     return text

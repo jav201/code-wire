@@ -1,10 +1,8 @@
-"""Tests for routes and the root of an example line (A3a).
+"""Tests for the root of an example line (A3a).
 
 Why these matter: CW-U-1 hid because the tests called the handler directly. A line that says "the button
 loads P1" passed C16, because some call of the node had "P1": the direct call of a test, not the button.
 With a root on the line, C16 compares only with the calls that the button started, and the same line fails.
-The routes block is the text form of the routes of parts 38 to 41 (one line for each route), so the parser
-must read it in full and the lint must name an entry that cannot be an entry point.
 """
 import os
 import sys
@@ -27,46 +25,13 @@ out: None
 func: loads the project with that name
 module: app.py
 
-## Boundary
-
-[Outside: key p, Load button] ──▶ handle_load_project
-
-## Routes
-
-route: Load project
-entry: [Outside: key p, Load button], App.action_load_project
-desc: the key p opens the dialog; its Load button sends the name
-
-route: No entry
-desc: a route with no entry point
-
-route: Bad entry
-entry: [Data: App.current_file], handle_load_project
 """
 
 
-def test_routes_are_read_in_full():
-    routes = cw.parse_text(GRAPH)["routes"]
-    assert routes[0] == {"name": "Load project", "entries": ["[Outside: key p, Load button]", "App.action_load_project"],
-                         "desc": "the key p opens the dialog; its Load button sends the name"}
-    assert [r["name"] for r in routes] == ["Load project", "No entry", "Bad entry"]
-
-
-def test_g8_names_a_route_that_cannot_start_anywhere():
-    g8 = [w["text"] for w in cw.graph_warnings(GRAPH) if w["code"] == "G8"]
-    assert any("No entry" in t for t in g8)
-    assert any("[Data: App.current_file]" in t for t in g8)            # data is not an entry point
-    named = [t.split("`")[1] for t in g8 if t.startswith("entry `")]
-    assert named == ["[Data: App.current_file]"]   # a node, an Outside item and a code name are entries
-    assert len(g8) == 2
-
-
 @pytest.mark.parametrize("line, want", [
-    ("(U2, U2.4, root TuiApp.on_button_pressed) path", {"thread": "U2", "step": "U2.4", "root": "TuiApp.on_button_pressed", "marker": None}),
-    ("(T1, t1a) path", {"thread": "T1", "step": "t1a", "root": None, "marker": None}),
-    ("(U1.3) path", {"thread": "U1.3", "step": None, "root": None, "marker": None}),
-    ("(T-8, inferred) x", {"thread": "T-8", "step": None, "root": None, "marker": "inferred"}),
-    ("(synthetic) y", {"thread": None, "step": None, "root": None, "marker": "synthetic"}),
+    ("(U2, U2.4, root TuiApp.on_button_pressed) path", {"thread": "U2", "step": "U2.4", "root": "TuiApp.on_button_pressed"}),
+    ("(T1, t1a) path", {"thread": "T1", "step": "t1a", "root": None}),
+    ("(U1.3) path", {"thread": "U1.3", "step": None, "root": None}),
 ])
 def test_the_source_of_an_example(line, want):
     assert cw.example_source(line) == want
