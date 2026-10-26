@@ -61,14 +61,14 @@ A write that a worker makes later is not in the values after the call.
 ## 4. Find, prove, confirm
 
 - **Find.** Two things find defects: an example written from the requirement (or the `oracle:`), and the list of the real callers in the extractor report, also the callers outside the slice ("Top-level sites"). In the F6 test, three defects came from examples and one from a caller in another file.
-- **Prove.** A defect counts only with a run that shows it: a regression test that fails, or a C16 drift.
-- **Confirm and keep.** C16 (`codewire_examples.py`) checks many example lines against a recording at once, and keeps the record. With a root, only the calls from that root count; `expect none` and an offer check one step. The report starts with the lines that no recording backs.
-- **The other two tools:** the extractor (`codewire_extract.py`) binds each mark `# node: name` to its def, checks the contract (inputs, types, defaults, output, module), and lists the real calls; `--path` keeps it to one slice. The lint (`codewire_lint.py`) lists each graph line that the parser does not read: an error.
+- **Prove.** A defect counts only with a run that shows it: a regression test that fails before the fix and passes after, or a C16 drift.
+- **Confirm and keep.** C16 (`codewire_examples.py`) checks many example lines against a recording at once, and keeps the record. With a root, only the calls from that root count; `expect none` and an offer check one step. The report starts with the lines that no recording backs. C16 exits 1 when a line with a recording does not hold (drift, no def, not run, no anchor); a line with no recording does not fail it, because a test can be its proof.
+- **The other two tools:** the extractor (`codewire_extract.py`) binds each mark `# node: name` to its def, checks the contract (inputs, types, defaults, output, module), and lists the real calls; `--path` keeps it to one slice. It exits 1 on a drift. The lint (`codewire_lint.py`) lists each graph line that the parser does not read: an error.
 
 ## 5. On a change, and in an audit
 
-- **A change.** Before the code: write the nodes that change, with examples from the requirement, and each new function as a stub with its mark. After the code: run the examples (a test or a recording with C16) and the extractor. Done = each example holds and the extractor has no drift.
-- **An audit of existing code.** (1) For each function, find what it must do: a requirement, a spec, a document. (2) Write one example from that, not from the code. (3) Mark the functions and run the extractor; read the callers, also outside the slice. (4) Run each example (a probe or a test). (5) Each example that does not hold is a candidate; it is a finding when a regression test shows it. Done = each finding has its failing test.
+- **A change.** Before the code: write the nodes that change, with examples from the requirement, and each new function as a stub with its mark. After the code: run the examples (a test or a recording with C16) and the extractor. Done = each example holds (a test or C16) and the extractor exits 0.
+- **An audit of existing code.** (1) For each function, find what it must do: a requirement, a spec, a document. (2) Write one example from that, not from the code. (3) Mark the functions and run the extractor; read the callers, also outside the slice. (4) Run each example (a probe or a test). (5) Each example that does not hold is a candidate; it is a finding when a regression test shows it. Done = each finding has a test that failed before the fix and passes after.
 - **The review.** A person reads the summary (the findings with their tests, what changed), not the graph.
 
 ## 6. Rules for the method itself

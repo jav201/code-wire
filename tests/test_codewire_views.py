@@ -149,7 +149,8 @@ def test_c16_reads_every_call_of_a_log(tmp_path):
     graph.write_text("## Nodes\n\nload\nin: int n\nout: int twice\nexamples: (AC-1) n `5` → `10`\n\n"
                      "new_step\nin: int x\nout: int y\nexamples: (AC-1) x `1` → `2`\n", encoding="utf-8")
     out = tmp_path / "c16.md"
-    assert ce.main(["--graph", str(graph), "--trace", f"AC-1={log}", "--out", str(out)]) == 0
+    # `new_step` has no code yet: its line does not hold, so the run is not green
+    assert ce.main(["--graph", str(graph), "--trace", f"AC-1={log}", "--out", str(out)]) == 1
     report = out.read_text(encoding="utf-8")
     assert "| `load` | AC-1 | ok |" in report
     assert "| `new_step` | AC-1 | no_def |" in report      # the skipped list came with the log
