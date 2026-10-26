@@ -41,7 +41,8 @@ FLOAT = re.compile(r"-?\d+\.\d+")
 FLOAT_IN_TEXT = re.compile(r"(?<![\w.])-?\d+\.\d+(?![\w.])")
 SPACES = re.compile(r"\s+")
 EXPECT_NONE = re.compile(r"→\s*expect none\b")
-FAILS = ("drift", "root_not_run", "step_not_run")
+# each state of a line that a recording does not hold; `no_trace` is not here: a test can be its proof
+FAILS = ("drift", "root_not_run", "step_not_run", "no_def", "node_not_run", "no_anchor", "not_checkable")
 
 
 def spaced(text):
@@ -281,10 +282,10 @@ def main(argv=None):
     rows = check(nodes, traces)
     offers = check_offers(entities, traces)
     a.out.write_text(render(rows, traces, offers), encoding="utf-8")
-    drift = sum(1 for r in rows if r[2] in FAILS)   # a line on a root or a step that never ran does not hold
+    drift = sum(1 for r in rows if r[2] in FAILS)
     broken = sum(1 for r in offers if r[4] in FAILS)
     no_rec = sum(1 for r in rows if r[2] == "no_trace")
-    print(f"{len(rows)} example lines, {no_rec} with no recording, {drift} drift; {len(offers)} offers, {broken} not kept -> {a.out}")
+    print(f"{len(rows)} example lines, {no_rec} with no recording, {drift} that do not hold; {len(offers)} offers, {broken} not kept -> {a.out}")
     return 1 if drift or broken else 0
 
 

@@ -13,6 +13,7 @@ import argparse
 import ast
 import json
 import re
+import sys
 from pathlib import Path
 
 MARK_RE = re.compile(r"^\s*#\s*node:\s*(\S+)\s*(?:\[([^\]]*)\])?")
@@ -814,7 +815,9 @@ def main(argv=None):
         render_report(findings, marks, graph_nodes, calls, top_level, ambiguous, failed), encoding="utf-8")
     print(f"marks={len(marks)} graph_nodes={len(graph_nodes)} calls={len(calls)} "
           f"findings={len(findings)} parse_failures={len(failed)}")
+    # "done = no drift": a drift or a file that does not parse exits 1, so a green run means it
+    return 1 if failed or any(not f["kind"].startswith("info_") for f in findings) else 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

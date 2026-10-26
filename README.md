@@ -23,12 +23,12 @@ Python 3, standard library only. Run them from the root of this repository, with
 | `tools/cw_record_run.py` | Records a probe script; a printed line can start a step | `python tools/cw_record_run.py --graph <graph.md> --path <code> --step-regex "^== (U\d+\.\d+)" --events ev.jsonl probe.py` |
 | `tools/cw_textual.py` | For a Textual app: the root crosses messages, dialogs and workers | `CW_ADAPTERS=textual` |
 | `tools/codewire_events.py` | Reads an event log: the examples and paths of each root, a root × node matrix, the first step where two logs differ | `python tools/codewire_events.py report ev.jsonl` · `… diff a.jsonl b.jsonl` |
-| `tools/codewire_examples.py` | C16: checks many example lines against a recording at once | `python tools/codewire_examples.py --graph <graph.md> --trace ev.jsonl --out report.md` (one log for every thread, or `--trace <thread>=ev.jsonl` for each) |
-| `tools/codewire_extract.py` | Compares the marks and the contracts of the graph with the code, and lists the real calls | `python tools/codewire_extract.py --repo <repo> --graph <graph.md> [--path <folder>] --out <dir>` |
+| `tools/codewire_examples.py` | C16: checks many example lines against a recording at once (exit 1 if a recorded line does not hold) | `python tools/codewire_examples.py --graph <graph.md> --trace ev.jsonl --out report.md` (one log for every thread, or `--trace <thread>=ev.jsonl` for each) |
+| `tools/codewire_extract.py` | Compares the marks and the contracts of the graph with the code, and lists the real calls (exit 1 on a drift) | `python tools/codewire_extract.py --repo <repo> --graph <graph.md> [--path <folder>] --out <dir>` |
 | `tools/codewire_lint.py` | Lists the lines of a graph that the parser does not read (exit 1 if any) | `python tools/codewire_lint.py <graph.md> [--json parse.json]` |
 | `tools/codewire_marks.py` | Writes the marks from a graph into a throwaway worktree | `python tools/codewire_marks.py --repo <worktree> --graph <graph.md>` |
 
-Tests: `python -m pytest tests` (136 tests).
+Tests: `python -m pytest tests` (145 tests).
 
 ## Known limits
 
