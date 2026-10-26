@@ -6,7 +6,11 @@ Generic: the nodes come from the graph files (name + `module:`), not from a hand
     CW_OUT     trace JSON to write (default cw-trace.json)
     CW_MAX     calls kept per node (default 3)
 The wrapped function returns exactly what the original returns; nothing in the repo is edited.
+    CW_MAX_EVENTS  events kept per (root, node) pair in the event log (default 50)
+    CW_ADAPTERS    framework adapters to install, separated by commas (`textual`: cw_textual.py)
 A node with no module or no def yet (a NEW node in forward) is skipped and listed in the trace key `_skipped`.
+Each call is also an event of the log (`codewire_events.py`): its root, its parent and a hash.
+The limit CW_MAX applies to each (root, node) pair, so each entry point keeps its own examples.
 """
 import dataclasses
 import functools
@@ -18,11 +22,14 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import codewire_events as events  # noqa: E402
 import codewire_extract as cw  # noqa: E402
 
 OUT = os.environ.get("CW_OUT", "cw-trace.json")
 MAX_CALLS = int(os.environ.get("CW_MAX", "3"))
+MAX_EVENTS = int(os.environ.get("CW_MAX_EVENTS", "50"))
 TRACE = {}  # node name -> list of calls
+KEPT = {}   # (root, node) -> events in the log
 DEPTH = [0]
 
 
@@ -38,6 +45,8 @@ def lit(v, depth=0):
     if isinstance(v, Path):
         return str(v)
     if depth >= 4:
+        if isinstance(v, (set, frozenset)):   # the repr of a set has the order of the process
+            return ("{" + ", ".join(sorted(map(repr, v))) + "}")[:300]
         return repr(v)[:300]
     if isinstance(v, dict):
         items = list(v.items())
@@ -46,7 +55,9 @@ def lit(v, depth=0):
             d["…total"] = len(items)
         return d
     if isinstance(v, (list, tuple, set, frozenset)):
-        seq = list(v)
+        # a set of strings has a new order in each process (hash randomization): sort it, or the
+        # same run gives another hash (Textual widget classes, A2d smoke run)
+        seq = sorted(v, key=repr) if isinstance(v, (set, frozenset)) else list(v)
         return [lit(x, depth + 1) for x in seq[:40]] + ([f"… total {len(seq)}"] if len(seq) > 40 else [])
     if dataclasses.is_dataclass(v):
         return {type(v).__name__: {f.name: lit(getattr(v, f.name), depth + 1) for f in dataclasses.fields(v)}}
@@ -90,22 +101,34 @@ def wrap(node, fn):
 
     @functools.wraps(fn)
     def w(*a, **k):
-        calls = TRACE.setdefault(node["name"], [])
-        if len(calls) >= MAX_CALLS:
-            return fn(*a, **k)
+        ev = events.begin(node["name"], sys._getframe(1), getattr(fn, "__code__", None), a + tuple(k.values()))
+        key = (ev["root"], node["name"])
+        if KEPT.get(key, 0) >= MAX_EVENTS:
+            try:
+                return fn(*a, **k)
+            finally:
+                events.end(ev)
+        KEPT[key] = KEPT.get(key, 0) + 1
         try:
             bound = sig.bind(*a, **k)
             args = dict(bound.arguments)
         except TypeError:
             bound, args = None, {"args": a, "kwargs": k}
         call = {"test": os.environ.get("PYTEST_CURRENT_TEST", "").split(" ")[0], "depth": DEPTH[0],
+                "root": ev["root"], "parent": ev["parent"],
                 "in": {n: lit(v) for n, v in args.items() if n != "self"}}
-        calls.append(call)
+        calls = TRACE.setdefault(node["name"], [])
+        if sum(1 for c in calls if c.get("root") == ev["root"]) < MAX_CALLS:
+            calls.append(call)
         DEPTH[0] += 1
         try:
             r = fn(*a, **k)
-        finally:
+        except BaseException:
             DEPTH[0] -= 1
+            call["raised"] = True
+            events.end(ev, call)
+            raise
+        DEPTH[0] -= 1
         is_init = node["name"].endswith(".__init__")
         call["out"] = lit(a[0] if is_init else r)
         if bound is not None:
@@ -115,6 +138,7 @@ def wrap(node, fn):
         files = files_in(list(args.values()) + [r])
         if files:
             call["files"] = files
+        events.end(ev, call)
         return r
     return w
 
@@ -130,7 +154,16 @@ def resolve(node):
 
 
 def pytest_configure(config):
-    texts = [Path(p).read_text(encoding="utf-8") for p in os.environ.get("CW_GRAPHS", "").split(os.pathsep) if p]
+    install([p for p in os.environ.get("CW_GRAPHS", "").split(os.pathsep) if p],
+            [n.strip() for n in os.environ.get("CW_ADAPTERS", "").split(",") if n.strip()])
+
+
+def install(graph_paths, adapters=()):
+    """Wrap every node of the graphs that has code; install the adapters (e.g. `textual`).
+    pytest calls it through `pytest_configure`; `cw_record_run.py` calls it for a script."""
+    for name in adapters:
+        importlib.import_module(f"cw_{name}").install()
+    texts = [Path(p).read_text(encoding="utf-8") for p in graph_paths]
     nodes, _, _, _ = cw.load_graphs(texts)
     originals, skipped = {}, []
     for node in nodes:
@@ -151,5 +184,11 @@ def pytest_configure(config):
 
 
 def pytest_unconfigure(config):
-    with open(OUT, "w", encoding="utf-8") as f:
+    save()
+
+
+def save(events_path=None, trace_path=None):
+    """Write the event log and the trace."""
+    events.write(events_path, skipped=TRACE.get("_skipped", []))
+    with open(trace_path or OUT, "w", encoding="utf-8") as f:
         json.dump(TRACE, f, indent=1, ensure_ascii=False, default=str)

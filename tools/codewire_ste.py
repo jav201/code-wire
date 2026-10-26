@@ -2,7 +2,7 @@
 measurable rules of ASD-STE100, as `Language-STE.md` sets them for this project?
 
 Checked, per sentence of prose (paragraphs and list items; not headings, tables, code). In the graph
-sections (`## Nodes`, `## Entities`, `## Edges`, `## Findings`) only the prose fields are prose: each
+sections (`## Nodes`, `## Entities`, `## Edges`, `## Boundary`, `## Findings`) only the prose fields are prose: each
 `func:`, `desc:`, `open:`, `contract:` value, and each `seen:`, `cause:`, `effect:` and `decision:` value
 of a finding (Notation-Grammar.md §7), is one paragraph. The other lines are structure (Language-STE.md §2):
     S1 length       a sentence in a numbered step has 20 words or fewer; any other sentence, 25 or fewer
@@ -29,7 +29,7 @@ CHAIN = re.compile(r";|,\s*then\b|\band then\b", re.I)
 PASSIVE = re.compile(r"\b(is|are|was|were|be|been|being)\s+(?:\w+ly\s+)?(\w+ed|known|done|made|given|written|read|"
                      r"found|shown|run|set|kept|left|built|sent|taken|seen|put|split|cut)\b", re.I)
 WORD = re.compile(r"[A-Za-z0-9][A-Za-z0-9'’_/.-]*")
-GRAPH_SECTIONS = ("## nodes", "## entities", "## edges", "## findings")
+GRAPH_SECTIONS = ("## nodes", "## entities", "## edges", "## boundary", "## findings")
 PROSE_FIELD = re.compile(r"^(func|desc|open|contract|seen|cause|effect|decision):\s*(.*)$")
 
 
