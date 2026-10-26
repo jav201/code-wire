@@ -48,7 +48,7 @@ key         = "req" | "in" | "out" | "func" | "module" | "examples"
 | `module:` | the file, from the root of the repository |
 | `examples:` | one line for each input → output pair; repeat the field for more lines (§3.1) |
 | `modify:` | what the node changes, each with `(replace)`, `(clear)` or `(append)`: an entity `[Data: …]`, or an input of the node by name. Separate them with `;` |
-| `volatile:` | the values that change in each run: an input, `out` or an output name, with fields after dots (`prepared.mac_cache_key`). The recorder keeps them in the event; the hash does not use them |
+| `volatile:` | the values that change in each run, separated by `,`: an input, `out` or an output name, with fields after dots (`prepared.mac_cache_key`). The recorder keeps them in the event; the hash does not use them |
 | `oracle:` | a source of truth outside the code: a standard, a README section, a file of examples. Repeat for more |
 
 A key two times in one node is an error, except `examples:` and `oracle:`.
@@ -57,14 +57,14 @@ A key two times in one node is an error, except `examples:` and `oracle:`.
 
 ```text
 example = "(" source { ", " part } ")" " " ? the thread: prose with literal anchors ? ;
-part    = step | "root " code-name | "unrecorded" ;
+part    = step | "root " code-name ;
 ```
 
 - The **source** is the thread: a test id or a probe (`T-8`, `U2`). The **step** names the step of a probe (`U2.4`).
-- **Anchors** are what C16 compares with the recording: `0x…`, text in backticks, `"…"`, `«…»`, and a number in backticks (`` `6` ``). The rest of the line is prose.
-- **`root X`** names the entry point that started the call. Then C16 compares the line only with the calls from that root.
+- **Anchors** are what C16 compares with the recording: `0x…`, text in backticks, `"…"`, `«…»`, a number in backticks (`` `6` ``), and `True`, `False` or `None` in backticks. The rest of the line is prose.
+- **How an anchor matches:** each anchor must equal or be inside **one** recorded value of the call (an input, the output, or a value after the call). Text is inside one recorded string; a number, a boolean or `None` equals one recorded value; `0xK: 0xV` is one key and its value. So write `start `257``, not `'start': 257` as one anchor. The recorder keeps 40 items of a list and 4000 characters of a string; C16 says when a drift falls on such a cut value.
+- **`root X`** names the entry point that started the call: a function of the app whose name starts with `on_` or `action_`. Then C16 compares the line only with the calls from that root. Under a probe script that calls functions itself, every call has the root `harness`.
 - **`→ expect none`** after the arrow says that the node has no call in that step. It needs a step and an event log.
-- **`unrecorded`** marks a line that no recording backs yet. C16 counts it and does not check it.
 
 ```code-wire
 ## Nodes

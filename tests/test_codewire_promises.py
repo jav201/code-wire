@@ -53,7 +53,7 @@ offers: (T, S1) "x Exit" → exit_app
 
 def test_offers_are_read_with_their_source():
     ent = {e["name"]: e for e in cw.parse_text(GRAPH)["entities"]}["[Interface: key bar]"]
-    assert ent["offers"][0] == {"source": {"thread": "T", "step": "S1", "root": None, "marker": None},
+    assert ent["offers"][0] == {"source": {"thread": "T", "step": "S1", "root": None},
                                 "control": "k Legend", "node": "show_legend"}
     assert ent["offers"][2]["source"] is None
 

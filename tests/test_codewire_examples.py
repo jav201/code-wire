@@ -6,6 +6,7 @@ literal value the code no longer produces, (2) not flag the same value written a
 that no recording backs it, and (4) see the value a node leaves in an input it modifies (Q28), which is where the
 pilot's mistake was. A check that passes on a changed value would make the thread decorative.
 """
+import json
 import sys
 from pathlib import Path
 
@@ -39,11 +40,10 @@ def test_changed_text_is_drift():
     assert rows[0][2] == "drift"
 
 
-def test_thread_tag_is_not_an_anchor_and_unrecorded_lines_are_counted():
+def test_thread_tag_is_not_an_anchor():
     traces = {"AC-1": {"load": [CALL]}}
-    rows = ce.check([node("load", "(AC-1, unrecorded) → 0xFFFF"), node("other", "(AC-1) → 0x1000"),
-                     node("load", "(case_03) → 0x1000")], traces)
-    assert [r[2] for r in rows] == ["unrecorded", "node_not_run", "no_trace"]
+    rows = ce.check([node("other", "(AC-1) → 0x1000"), node("load", "(case_03) → 0x1000")], traces)
+    assert [r[2] for r in rows] == ["node_not_run", "no_trace"]
 
 
 def test_best_call_wins():
@@ -138,10 +138,29 @@ def test_bare_number_gets_a_warning_and_a_count_in_parentheses_does_not():
 def test_the_report_starts_with_the_lines_that_no_recording_backs():
     # second-project batches 006 and 009 ran no recording: every line stayed plausible and not checked, and every gate
     # was green. The count of such lines is the first fact of the report, so it cannot hide.
-    rows = ce.check([node("load", "(AC-1) → 0x1000"), node("load", "(AC-1, unrecorded) → 0x2"),
-                     node("load", "(case_03) → 0x1000")], {"AC-1": {"load": [CALL]}})
+    rows = ce.check([node("load", "(AC-1) → 0x1000"), node("load", "(case_03) → 0x1000")], {"AC-1": {"load": [CALL]}})
     first = ce.render(rows, {"AC-1": {}}).splitlines()[2]
-    assert first.startswith("- **Lines that no recording backs: 2 of 3**")
+    assert first.startswith("- **Lines that no recording backs: 1 of 2**")
+
+
+def test_a_boolean_or_none_in_backticks_is_an_anchor():
+    # the F6 test: `flow_change_census_complete` gave True on an incomplete section, and the line that said
+    # `False` passed, because a boolean was not an anchor and the other quoted values were inputs
+    call = {"in": {"section": "data.json [CHG-X]"}, "out": True}
+    assert ce.check_line('(T) section "data.json [CHG-X]" → `False`', [call]) == ["False"]
+    assert ce.check_line('(T) section "data.json [CHG-X]" → `True`', [call]) == []
+    assert ce.check_line("(T) → `None`", [{"in": {}, "out": None}]) == []
+    # a text that only contains the word is not the value
+    assert ce.check_line("(T) → `True`", [{"in": {}, "out": "True only"}]) == ["True"]
+
+
+def test_a_drift_on_a_cut_value_says_so():
+    # the F6 test: an example about the end of a long output drifted, because the recorder kept 40 items
+    calls = {"T": {"load": [{"in": {}, "out": ["row 0", "row 1", "… total 644"]}]}}
+    (row,) = ce.check([node("load", '(T) → "row 643"')], calls)
+    assert row[2] == "drift" and "the recorder cut a long value" in row[3]
+    (row,) = ce.check([node("load", '(T) → "row 1"')], calls)
+    assert row[2] == "ok"
 
 
 # A1, from the app audits of 2026-10-23 (data MF-3, MF-4; UI MF-2)
@@ -168,3 +187,23 @@ def test_screen_padding_does_not_make_a_drift():
     call = {"out": {"card": "was    38 39 3A 3B\nnow    DE AD BE EF"}}
     assert ce.check_line("(U3) → `was 38 39 3A 3B`", [call]) == []
     assert ce.check_line("(U3) → `was 38 39 3A 3C`", [call]) == ["was 38 39 3A 3C"]
+
+
+def test_one_trace_with_no_thread_name_serves_every_thread(tmp_path):
+    # the F6 test: with one `--trace` the README way, every line of the nine probe threads was "no recording"
+    g = tmp_path / "g.md"
+    g.write_text("## Nodes\n\nload\nin: str path\nout: int n\nmodule: m.py\n"
+                 "examples: (P1) → 0x1000\nexamples: (P2) → 0x1000\n", encoding="utf-8")
+    t = tmp_path / "t.json"
+    t.write_text(json.dumps({"load": [CALL]}), encoding="utf-8")
+    out = tmp_path / "c16.md"
+    assert ce.main(["--graph", str(g), "--trace", str(t), "--out", str(out)]) == 0
+    assert "Lines that no recording backs: 0 of 2" in out.read_text(encoding="utf-8")
+
+
+def test_the_recorder_writes_no_trace_file_unless_asked(tmp_path, monkeypatch):
+    # the F6 test: the pytest plugin wrote cw-trace.json into the root of the audited repository
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.setattr(rec, "OUT", None)
+    rec.save(events_path=tmp_path / "ev.jsonl")
+    assert (tmp_path / "ev.jsonl").exists() and not (tmp_path / "cw-trace.json").exists()

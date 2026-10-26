@@ -1,12 +1,12 @@
 # Code-Wire — the method
 
-> v3 (2026-10-25): the core only. A reduction review of five real uses (app first-use, two app audits, second-project batches 006 and 009) showed that every real finding came from one thing: a concrete example for each function, checked against a recording of the real code. What found nothing left the method. The history is in git.
+> v3.1 (2026-10-26): the core only. A reduction review of five real uses (app first-use, two app audits, second-project batches 006 and 009) and a test on app flow F6 showed where findings come from: a concrete example for each function, written from what the function must do, and the list of who really calls it. What found nothing left the method. The history is in git.
 
 ## 1. The idea
 
-Describe a part of a program as a set of black-box functions. For each function, write its contract (typed inputs, one output) and at least one concrete example: a real value that goes in and the value that comes out. Then record the real code while it runs, and check each example against the recording.
+Describe a part of a program as a set of black-box functions. For each function, write its contract (typed inputs, one output) and at least one concrete example: the value that goes in and the value that must come out, taken from the requirement or another source of truth, not from the code. Then run the code and see if the example holds.
 
-The examples are where the method finds problems. Writing one concrete line for each function makes you look at what the code really does. The recording makes the line a fact, not a guess.
+The examples are where the method finds problems. A concrete expected value makes you check what the code really does. A defect counts only when a run shows it.
 
 **When not to use it:** for a small change that one reader can see whole (one script, a few functions). There it costs more than it finds.
 
@@ -27,8 +27,7 @@ examples: (T-8) alarms (1 of 1) "A 10:02 disk full" → count `1`
 ```
 
 - `in:` lists every parameter with its type, also the ones with a default. `out:` is one output.
-- `examples:` is the thread: one real item followed through the flow. Name its source (a test id or a probe), and write the values that the line commits to as anchors: `0x…`, text in backticks or quotes, a number in backticks. The rest of the line is prose.
-- A line that no recording backs yet gets the marker `unrecorded`: `(T-8, unrecorded)`.
+- `examples:` is the thread: one real item followed through the flow. Name its source (a test id or a probe), and write the values that the line commits to as anchors: `0x…`, text in backticks or quotes, a number, `True`, `False` or `None` in backticks. The rest of the line is prose. `Notation-Grammar.md` §3.1 says how an anchor matches.
 
 **Optional parts.** Use one only when the case needs it. Each one comes from a real defect:
 
@@ -59,19 +58,18 @@ The recorder wraps each function of the graph while the real code runs, and writ
 
 A write that a worker makes later is not in the values after the call.
 
-## 4. The checks
+## 4. Find, prove, confirm
 
-There are three, and only three:
+- **Find.** Two things find defects: an example written from the requirement (or the `oracle:`), and the list of the real callers in the extractor report, also the callers outside the slice ("Top-level sites"). In the F6 test, three defects came from examples and one from a caller in another file.
+- **Prove.** A defect counts only with a run that shows it: a regression test that fails, or a C16 drift.
+- **Confirm and keep.** C16 (`codewire_examples.py`) checks many example lines against a recording at once, and keeps the record. With a root, only the calls from that root count; `expect none` and an offer check one step. The report starts with the lines that no recording backs.
+- **The other two tools:** the extractor (`codewire_extract.py`) binds each mark `# node: name` to its def, checks the contract (inputs, types, defaults, output, module), and lists the real calls; `--path` keeps it to one slice. The lint (`codewire_lint.py`) lists each graph line that the parser does not read: an error.
 
-1. **C16, the examples check** (`codewire_examples.py`). Each example line holds when its anchors are in one recorded call of its function. With a root, only the calls from that root count. `expect none` holds when the function has no call in that step. An offer holds when its function ran in that step. The report starts with the number of lines that no recording backs.
-2. **The extractor** (`codewire_extract.py`). Each mark `# node: name` binds to its def, and the contract of the graph matches the code: inputs, types, defaults, output, module. It lists the real calls between the functions. `--path` keeps it to one slice.
-3. **The lint** (`codewire_lint.py`). It lists each line of the graph that the parser does not read. A tool would skip such a line with no word, so each one is an error.
+## 5. On a change, and in an audit
 
-## 5. Before and after the code
-
-- **Before the code (plan):** write the nodes that the change adds or changes, with their example lines marked `unrecorded`. Write each new function as a stub with its mark. The plan says which nodes change.
-- **After the code:** record the threads, then run C16 and the extractor. The change is done when C16 has no drift and no `unrecorded` line for the changed nodes, and the extractor has no drift. **No recording, no done.**
-- **The review:** a person reads the summary (what changed, the findings, the number of lines with no recording), not the graph.
+- **A change.** Before the code: write the nodes that change, with examples from the requirement, and each new function as a stub with its mark. After the code: run the examples (a test or a recording with C16) and the extractor. Done = each example holds and the extractor has no drift.
+- **An audit of existing code.** (1) For each function, find what it must do: a requirement, a spec, a document. (2) Write one example from that, not from the code. (3) Mark the functions and run the extractor; read the callers, also outside the slice. (4) Run each example (a probe or a test). (5) Each example that does not hold is a candidate; it is a finding when a regression test shows it. Done = each finding has its failing test.
+- **The review.** A person reads the summary (the findings with their tests, what changed), not the graph.
 
 ## 6. Rules for the method itself
 

@@ -3,7 +3,7 @@ while real tests run, so `codewire_examples.py` can check the graph's `ejemplos:
 
 Generic: the nodes come from the graph files (name + `module:`), not from a hand-written list.
     CW_GRAPHS  graph .md files, separated by os.pathsep
-    CW_OUT     trace JSON to write (default cw-trace.json)
+    CW_OUT     trace JSON to write (no file when it is not set)
     CW_MAX     calls kept per node (default 3)
 The wrapped function returns exactly what the original returns; nothing in the repo is edited.
     CW_MAX_EVENTS  events kept per (root, node) pair in the event log (default 50)
@@ -29,7 +29,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import codewire_events as events  # noqa: E402
 import codewire_extract as cw  # noqa: E402
 
-OUT = os.environ.get("CW_OUT", "cw-trace.json")
+OUT = os.environ.get("CW_OUT")   # the trace file only when asked: no file in the repository by default
 MAX_CALLS = int(os.environ.get("CW_MAX", "3"))
 MAX_EVENTS = int(os.environ.get("CW_MAX_EVENTS", "50"))
 TRACE = {}  # node name -> list of calls
@@ -237,5 +237,6 @@ def pytest_unconfigure(config):
 def save(events_path=None, trace_path=None):
     """Write the event log and the trace."""
     events.write(events_path, skipped=TRACE.get("_skipped", []))
-    with open(trace_path or OUT, "w", encoding="utf-8") as f:
-        json.dump(TRACE, f, indent=1, ensure_ascii=False, default=str)
+    if trace_path or OUT:
+        with open(trace_path or OUT, "w", encoding="utf-8") as f:
+            json.dump(TRACE, f, indent=1, ensure_ascii=False, default=str)

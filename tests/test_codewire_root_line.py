@@ -29,11 +29,9 @@ module: app.py
 
 
 @pytest.mark.parametrize("line, want", [
-    ("(U2, U2.4, root TuiApp.on_button_pressed) path", {"thread": "U2", "step": "U2.4", "root": "TuiApp.on_button_pressed", "marker": None}),
-    ("(T1, t1a) path", {"thread": "T1", "step": "t1a", "root": None, "marker": None}),
-    ("(U1.3) path", {"thread": "U1.3", "step": None, "root": None, "marker": None}),
-    ("(T-8, unrecorded) x", {"thread": "T-8", "step": None, "root": None, "marker": "unrecorded"}),
-    ("(unrecorded) y", {"thread": None, "step": None, "root": None, "marker": "unrecorded"}),
+    ("(U2, U2.4, root TuiApp.on_button_pressed) path", {"thread": "U2", "step": "U2.4", "root": "TuiApp.on_button_pressed"}),
+    ("(T1, t1a) path", {"thread": "T1", "step": "t1a", "root": None}),
+    ("(U1.3) path", {"thread": "U1.3", "step": None, "root": None}),
 ])
 def test_the_source_of_an_example(line, want):
     assert cw.example_source(line) == want

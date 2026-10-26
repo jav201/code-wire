@@ -23,7 +23,6 @@ ENTITY_KEYS = ("in", "desc", "sequence", "offers")
 OFFER = re.compile(r'^offers:\s*(\([^)]*\)\s*)?"([^"]+)"\s*→\s*(\S+)\s*$')
 FINDING_KEYS = ("anchor", "seen", "cause", "effect", "decision")
 SECTIONS = ("Nodes", "Entities", "Edges", "Findings")
-MARKERS = ("unrecorded",)   # a line that no recording backs yet
 ENTITY_END = re.compile(r"^(\[[^\]]*\])(.*)$")   # an entity, then maybe `.field` (A3d)
 FIELD = re.compile(r"^\.([A-Za-z_]\w*(?:\.[A-Za-z_]\w*)*)$")
 ASSIGN_RE = re.compile(r"\s*\((replace|clear|append)\)\s*$")
@@ -346,17 +345,15 @@ def parse_entity_blocks(md_text):
 
 
 def example_source(line):
-    """The source in the parentheses of an `examples:` line: {thread, step, root, marker}.
-    `(T1, t1a)`, `(U2, U2.4, root TuiApp.on_button_pressed)`, `(T-8, unrecorded)`."""
-    src = {"thread": None, "step": None, "root": None, "marker": None}
+    """The source in the parentheses of an `examples:` line: {thread, step, root}.
+    `(T1, t1a)`, `(U2, U2.4, root TuiApp.on_button_pressed)`."""
+    src = {"thread": None, "step": None, "root": None}
     m = re.match(r"\s*\(([^)]*)\)", line)
     if not m:
         return src
     for i, part in enumerate(p.strip() for p in m.group(1).split(",")):
         word = part.split(" ")[0]
-        if part in MARKERS:
-            src["marker"] = part
-        elif word == "root" and len(part.split()) == 2:
+        if word == "root" and len(part.split()) == 2:
             src["root"] = part.split()[1]
         elif i == 0:
             src["thread"] = part
