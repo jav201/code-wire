@@ -1,4 +1,4 @@
-"""Code-Wire examples check: are the graph's `examples:` (literal thread, Metodologia.md §3.1) still
+"""Code-Wire examples check: are the graph's `examples:` (literal thread, Metodologia.md §2) still
 what the code produces?
 
 Each `ejemplos:` line names its thread, e.g. `(AC-1) ...`. For a thread with a recorded trace
