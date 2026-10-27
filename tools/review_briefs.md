@@ -10,7 +10,6 @@ You build the map of one module of a code base, in the Code-Wire graph text. The
 ## Where
 - Work ONLY in `{WORK}\{G}`. Do not read other folders under `{WORK}`. You may read the Code-Wire docs (`{TOOLS}\..\docs`); do not change them.
 - Python for the tools: `{PYTHON}`. Write everything under `_map/`. You may `git init` the copy for the marks tool; push nothing. Remove the marks when you are done.
-{ENV}
 
 ## Your module: {G} — {NAME}
 - Requirements: the chapter `## {G} — ...` of `REQUIREMENTS.md`, and the rows named on its `Also touches` lines.
