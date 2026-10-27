@@ -58,7 +58,7 @@ def node_blocks(text):
     out = []
     for block in re.split(r"\n\s*\n", cw.section(text, "Nodes")):
         lines = [l for l in block.strip().splitlines() if l.strip()]
-        if not lines or ":" in lines[0].split()[0]:
+        if not lines or ":" in lines[0].split()[0] or lines[0].lstrip().startswith(("###", ">")):
             continue
         keys = dict(re.findall(r"^(\w+):\s*(.*)$", block, re.M))
         reqs = [] if keys.get("req", "").strip() in ("", "to trace") else [x.strip() for x in keys["req"].split(",")]

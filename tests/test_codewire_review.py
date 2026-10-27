@@ -211,3 +211,11 @@ def test_cohesion_waits_for_every_review_gate(work, capsys):
     assert run(work, "review-gate", "--group", "G1") == 0
     assert run(work, "brief", "--kind", "cohesion") == 1
     assert "review-gate not passed for: G2" in capsys.readouterr().out
+
+
+def test_note_blocks_are_not_nodes(work):
+    # C2 (G8a): a map with `### <file>` headings between nodes made the traces count 7 extra `to trace` nodes
+    mapped(work, "G1", GRAPH_G1.replace("## Nodes\n\n", "## Nodes\n\n### pkg/a.py\n\n> the alpha module\n\n"))
+    assert run(work, "map-gate", "--group", "G1") == 0
+    traces = (work / "G1" / "_map" / "TRACES.md").read_text(encoding="utf-8")
+    assert "Nodes: 4; `to trace`: 0" in traces
