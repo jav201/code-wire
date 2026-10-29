@@ -19,6 +19,8 @@ import codewire_extract as cw  # noqa: E402
 
 TOOLS = Path(__file__).resolve().parent
 SKIP = {"_map", "_review", ".git", "__pycache__", ".pytest_cache"}
+# a test that fails like this did not reach the code it reviews
+ENV_FAILURE = r"not natively supported|ERROR collecting|ModuleNotFoundError|ImportError while importing"
 
 
 class Work:
@@ -158,12 +160,19 @@ def cmd_review_gate(w, a):
     else:
         # -B and a fresh prefix: a gate that reads a stale .pyc of an edited test would judge old code
         env = {**os.environ, "PYTHONDONTWRITEBYTECODE": "1", "PYTHONPYCACHEPREFIX": str(w.root / ".gate-pyc" / g)}
+        env.pop("NO_COLOR", None)
+        if a.pythonpath:   # run the tests the way the reviewer did (a plugin kept under _review/, for example)
+            env["PYTHONPATH"] = os.pathsep.join([str(w.root / g / a.pythonpath), env.get("PYTHONPATH", "")])
         shutil.rmtree(w.root / ".gate-pyc" / g, ignore_errors=True)
-        run = subprocess.run([a.python, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", "_review/code/tests"],
-                             cwd=w.root / g, capture_output=True, text=True, timeout=a.timeout, env=env)
+        run = subprocess.run([a.python, "-B", "-m", "pytest", "-q", "-p", "no:cacheprovider", *a.pytest_arg,
+                              "_review/code/tests"], cwd=w.root / g, capture_output=True, text=True,
+                             timeout=a.timeout, env=env)
         failed = re.search(r"(\d+) failed", run.stdout)
         print(run.stdout.strip().splitlines()[-1] if run.stdout.strip() else run.stderr.strip()[-300:])
-        if not failed:
+        if re.search(ENV_FAILURE, run.stdout + run.stderr):
+            problems.append("the code-review tests fail for their environment, not for a defect "
+                            "(run them as the reviewer did: --pytest-arg / --pythonpath)")
+        elif not failed:
             problems.append("no code-review test fails on the current code")
     for copy in (w.root / g, w.root / f"{g}-tests"):
         if copy.exists():
@@ -219,6 +228,8 @@ def main(argv=None):
     ap.add_argument("--python", default=sys.executable)
     ap.add_argument("--env", default="", help="environment notes written into the brief")
     ap.add_argument("--timeout", type=int, default=600)
+    ap.add_argument("--pytest-arg", action="append", default=[], help="review-gate: one more pytest argument; repeat")
+    ap.add_argument("--pythonpath", default="", help="review-gate: a folder of the group copy put on PYTHONPATH")
     a = ap.parse_args(argv)
     w = Work(a.work)
     return {"brief": cmd_brief, "map-gate": cmd_map_gate, "review-gate": cmd_review_gate}[a.command](w, a)

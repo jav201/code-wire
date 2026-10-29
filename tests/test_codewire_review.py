@@ -219,3 +219,19 @@ def test_note_blocks_are_not_nodes(work):
     assert run(work, "map-gate", "--group", "G1") == 0
     traces = (work / "G1" / "_map" / "TRACES.md").read_text(encoding="utf-8")
     assert "Nodes: 4; `to trace`: 0" in traces
+
+
+def test_a_red_test_that_fails_for_its_environment_does_not_pass_the_gate(work, capsys):
+    # C2 (G8b): async tests run without their plugin fail as "not natively supported"; the gate must not count that as RED
+    mapped(work, "G1", GRAPH_G1)
+    assert run(work, "map-gate", "--group", "G1") == 0
+    t = work / "G1" / "_review" / "code" / "tests"
+    t.mkdir(parents=True)
+    (t / "test_review.py").write_text("async def test_defect():\n    assert False\n", encoding="utf-8")
+    assert run(work, "review-gate", "--group", "G1") == 1
+    assert "fail for their environment" in capsys.readouterr().out
+    shim = work / "G1" / "_review" / "shim.py"
+    shim.write_text("import asyncio, inspect, pytest\n\n@pytest.hookimpl(tryfirst=True)\ndef pytest_pyfunc_call(pyfuncitem):\n"
+                    "    if inspect.iscoroutinefunction(pyfuncitem.obj):\n        asyncio.run(pyfuncitem.obj())\n        return True\n",
+                    encoding="utf-8")
+    assert run(work, "review-gate", "--group", "G1", "--pytest-arg=-p", "--pytest-arg=shim", "--pythonpath", "_review") == 0
