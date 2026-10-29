@@ -130,9 +130,11 @@ def regenerate(w):
                  "`cross-nodes.md`): " + (", ".join(f"{r} ({elsewhere[r]})" for r in chapter if r not in here and r in elsewhere) or "none") + ".",
                  "- Rows with no node in any passed map: " + (", ".join(r for r in chapter if r not in here and r not in elsewhere) or "none") + ".",
                  f"- Maps included: {', '.join(sorted(maps))}.", ""]
-        (w.root / g / "_map" / "TRACES.md").write_text("\n".join(lines), encoding="utf-8")
         body = [f"# Nodes of other modules that carry a requirement of {g}", ""] + [f"<!-- from {o} -->\n{b}\n" for o, b in cross]
-        (w.root / g / "_map" / "cross-nodes.md").write_text("\n".join(body), encoding="utf-8")
+        for copy in (w.root / g, w.root / f"{g}-tests"):   # the test reviewer's copy must not keep older traces
+            if (copy / "_map").exists():
+                (copy / "_map" / "TRACES.md").write_text("\n".join(lines), encoding="utf-8")
+                (copy / "_map" / "cross-nodes.md").write_text("\n".join(body), encoding="utf-8")
 
 
 def fresh(w, g):

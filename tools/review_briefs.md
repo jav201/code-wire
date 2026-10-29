@@ -40,7 +40,7 @@ You review the code of one module against its requirements. The map of the modul
 For each row of the chapter, find its nodes, read that code, and decide whether it does what the row says. Write a concrete example from the requirement, not from the code. Look at the callers too. A defect counts only with a regression test that fails on the current code (`_review/code/tests/`).
 
 ## Report (as the text of your final reply)
-Defects (id, requirement sentence quoted with its location, node, test and RED output, how found); suspects; the rows you read and found no defect in; map use (what it gave, what it got wrong, how much you read outside it).
+Defects (id, requirement sentence quoted with its location, node, test and RED output, how found); suspects; map use (what it gave, what it got wrong, how much you read outside it). Also write `_review/code/rows-read.txt`: one requirement id per line for every row you read, followed by `defect <id>` or `clean`.
 
 === tests
 You review the test cases of one module against its requirements. The map is your reading base: each node's `examples:` lines name the tests that call it.
@@ -53,7 +53,7 @@ You review the test cases of one module against its requirements. The map is you
 `_map/graph-{G}.md`, `_map/TRACES.md`, `_map/cross-nodes.md` (only the pertinent nodes of other modules; your chapter owns those rows), and the chapter `## {G} — ...` of `REQUIREMENTS.md`.
 
 ## Task
-For each row of the chapter: is there a test for what it says (missing)? Does it check the right value (wrong oracle)? Can it fail? Prove the last with a mutant aimed at that row's clause; a test that stays green is vacuous. A row is **proven** only when a mutant aimed at its clause is killed. Label each mutant with the full requirement id. Look for tests outside the map too (search the row id in `tests/`).
+For each row of the chapter: is there a test for what it says (missing)? Does it check the right value (wrong oracle)? Can it fail? Prove the last with a mutant aimed at that row's clause; a test that stays green is vacuous. A row is **proven** only when a mutant aimed at its clause is killed, and a mutant is killed only when a test assertion fails (an import error, a collection error or a timeout is not a kill). A row whose killing test enforces the opposite of the row is not proven: report it as a wrong oracle. Label each mutant with the full requirement id, and write `_review/tests/rows.txt`: one line per row, `<id> proven|not-proven <mutant ids>`. Look for tests outside the map too (search the row id in `tests/`).
 
 ## Report (as the text of your final reply)
 Findings (id, kind, requirement quoted, tests, evidence); the rows proven, out of the chapter's rows; map use.
