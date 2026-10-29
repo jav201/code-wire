@@ -72,7 +72,7 @@ Do not change, create or delete anything under `{WORK}`; run nothing; your repor
 2. Duplicates and shared causes across modules.
 3. Contradictions between modules.
 4. What no module covered (rows, code with no row, rows "with a node" that the code does not implement).
-5. Requirement problems to rule, one line each.
+5. Each discrepancy, one line: the behaviour to decide, and what is wrong in each design artifact (requirement, user story, V&V, evidence; code only if it differs from the decision).
 6. Differences in method between modules that change how results compare.
 
 Each item with its ids, groups and source file. Say what you could not determine.

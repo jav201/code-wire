@@ -8,7 +8,7 @@
 2. **Map each module.** One agent per module writes the map in Code-Wire graph text: one node per function, with its requirements, contract and the tests that call it. The map is the reading base for the reviewers; it does not look for defects.
 3. **Review on the map.** Each map goes to two agents: one reviews the code (a defect counts only with a test that fails), one reviews the test cases (a weak test counts only with a mutant that survives).
 4. **Review the traces.** The orchestrator checks requirement → node → test and code → node, and hands each reviewer only the nodes of other modules that carry a requirement of its chapter.
-5. **Review cohesion.** When every module is done, two agents read all the results and look for what crosses modules: rows reviewed on neither side, contradictions, shared causes, gaps. The orchestrator matches what they say against the traces.
+5. **Review cohesion.** When every module is done, two agents read all the results and look for what crosses modules: rows reviewed on neither side, contradictions, shared causes, gaps. The orchestrator matches what they say against the traces. The map only photographs the code and its traces: a discrepancy is resolved in the design artifacts (requirement, user story, V&V, evidence), and the code follows them.
 
 ## What each step must not do
 
