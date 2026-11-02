@@ -1,6 +1,6 @@
 """Tests for the event log (A2a).
 
-Why these matter: the app audits found their defects in recorded threads, and the spike of part 41
+Why these matter: two real audits found their defects in recorded threads, and an early spike
 showed that one example on a node hides what each entry point gives it (`'P1'` from a direct call,
 `'Label()'` from the button, `None` from the key). So each recorded call must say (1) which entry point
 started it, or that a harness called it directly, (2) which node called it, and (3) a hash that is the
@@ -162,7 +162,7 @@ def framework_dispatch(handler, value):
 
 
 def test_an_entry_node_that_the_framework_calls_is_its_own_root():
-    # app smoke run of A2c: `action_load_project` and the dialogs' `on_button_pressed` are nodes, and
+    # a smoke run: `action_load_project` and the dialogs' `on_button_pressed` are nodes, and
     # Textual calls them from its own code. With no rule they were all `harness`.
     framework_dispatch(dialog_class()().on_button_pressed, "P1")
     ev = events.EVENTS[-1]

@@ -1,6 +1,6 @@
 """Tests for volatile values and the oracle of a node (A3c): `volatile:` and `oracle:`.
 
-Why these matter: a diff of two runs must stop at the first real change. In app the load payload
+Why these matter: a diff of two runs must stop at the first real change. In the audited application the load payload
 holds `mac_cache_key`, a key made from `id()` of objects, so two equal runs gave other hashes. The
 runner of I1c hid it with a regex in `CW_VOLATILE`: the graph did not say it, and a runner that forgets
 the regex sees a change that is not there. With `volatile:` the graph says it, and only that value
@@ -56,7 +56,7 @@ class Prepared:
         self.cache_key = cache_key
 
 
-KEYS = itertools.count(140708953516752)   # an address: a new one in each run, as `id()` in app
+KEYS = itertools.count(140708953516752)   # an address: a new one in each run, as `id()` in the audited application
 
 
 def node(name):
@@ -107,7 +107,7 @@ def run_twice(n, fn, first, second):
 
 
 def test_a_volatile_field_does_not_change_the_hash():
-    fn = lambda path, started: Prepared(3, [next(KEYS), 0])   # noqa: E731  the key of app
+    fn = lambda path, started: Prepared(3, [next(KEYS), 0])   # noqa: E731  the key of the audited application
     a, b = run_twice(node("prepare_load"), fn, ("fw.s19", 1.5), ("fw.s19", 9.25))
     assert a["hash"] == b["hash"]
     # the event still keeps the values: the hash does not use them, a reader can see them

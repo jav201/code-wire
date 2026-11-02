@@ -11,7 +11,7 @@ Quoted text of 1 or 2 characters (`"ok"`) must equal a whole recorded string, no
     `6`             a decimal number in backticks -> compared as an integer (v2.6)
     `30.0`          a float in backticks -> compared with a tolerance (A1)
 Prose around the anchors is not checked. `True`, `False` and `None` in backticks must equal a whole
-recorded value (the F6 test: a line about a boolean result could not fail).
+recorded value (a flow test: a line about a boolean result could not fail).
 A line with no anchor is `no_anchor`, not `ok`. A node that the recorder skipped (no def yet) is `no_def`.
 v2.6: a bare number (not in backticks, quotes or parentheses) gets a warning, because the check does not
 compare it. A1: a recorded string matches in its own form, and also with each backslash as `/`:

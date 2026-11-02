@@ -1,6 +1,6 @@
 """Tests for the script recorder (A2c).
 
-Why these matter: the threads of the two app audits come from probe scripts, not from pytest, and
+Why these matter: the threads of two real audits come from probe scripts, not from pytest, and
 each thread line names a step (`(U1.3)`). If the recorder only works under pytest, those runs give no
 events; if the steps are lost, an example can not be tied to the step that the graph names. A failed
 script must still leave its log: a probe that crashes is exactly the run you need to read.
@@ -58,7 +58,7 @@ if "--crash" in sys.argv:
     raise RuntimeError("the probe broke")
 if "--chdir" in sys.argv:
     import os, tempfile
-    os.chdir(tempfile.mkdtemp())   # the app probes do this: each one works in its own temp folder
+    os.chdir(tempfile.mkdtemp())   # the audit probes do this: each one works in its own temp folder
 '''
 
 

@@ -1,6 +1,6 @@
 # Code-Wire — the method
 
-> v3.1 (2026-10-26): the core only. A reduction review of five real uses (app first-use, two app audits, second-project batches 006 and 009) and a test on app flow F6 showed where findings come from: a concrete example for each function, written from what the function must do, and the list of who really calls it. What found nothing left the method. The history is in git.
+> v3.1 (2026-10-26): the core only. A reduction review of five real uses (one change batch, two audits of existing code, two batches of a second project) and a test on one flow showed where findings come from: a concrete example for each function, written from what the function must do, and the list of who really calls it. What found nothing left the method. The history is in git.
 
 ## 1. The idea
 
@@ -33,8 +33,8 @@ examples: (T-8) alarms (1 of 1) "A 10:02 disk full" → count `1`
 
 | Part | Use it for | The case that asked for it |
 |---|---|---|
-| `modify:` and `[Data: …]` entities | a function that changes shared state | the state that a handler with no output writes (app data audit) |
-| `sequence:` with `wins` and `(!)` | the order of writes and reads in one event | a read before the write that wins (H-1; the focus defect, app UI audit) |
+| `modify:` and `[Data: …]` entities | a function that changes shared state | the state that a handler with no output writes (a data-flow audit) |
+| `sequence:` with `wins` and `(!)` | the order of writes and reads in one event | a read before the write that wins (H-1; the focus defect, a UI audit) |
 | `[Outside: key]` edge with `when:` | a key that runs a function under a condition | the focus that takes the keys (CW-U-2) |
 | `[Data: X].field` edge | two readers of two fields of one entity | CW-D-7: the plan reads one field, the writer another |
 | `root X` in the source of a line | the entry point that must start the call | a line that passed only because a test called the function directly (CW-U-1) |
@@ -60,7 +60,7 @@ A write that a worker makes later is not in the values after the call.
 
 ## 4. Find, prove, confirm
 
-- **Find.** Two things find defects: an example written from the requirement (or the `oracle:`), and the list of the real callers in the extractor report, also the callers outside the slice ("Top-level sites"). In the F6 test, three defects came from examples and one from a caller in another file.
+- **Find.** Two things find defects: an example written from the requirement (or the `oracle:`), and the list of the real callers in the extractor report, also the callers outside the slice ("Top-level sites"). In a flow test, three defects came from examples and one from a caller in another file.
 - **Prove.** A defect counts only with a run that shows it: a regression test that fails before the fix and passes after, or a C16 drift.
 - **Confirm and keep.** C16 (`codewire_examples.py`) checks many example lines against a recording at once, and keeps the record. With a root, only the calls from that root count; `expect none` and an offer check one step. The report starts with the lines that no recording backs. C16 exits 1 when a line with a recording does not hold (drift, no def, not run, no anchor); a line with no recording does not fail it, because a test can be its proof.
 - **The other two tools:** the extractor (`codewire_extract.py`) binds each mark `# node: name` to its def, checks the contract (inputs, types, defaults, output, module), and lists the real calls; `--path` keeps it to one slice. It exits 1 on a drift. The lint (`codewire_lint.py`) lists each graph line that the parser does not read: an error.

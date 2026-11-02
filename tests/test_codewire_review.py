@@ -1,6 +1,6 @@
 """Tests for the gates of the review by modules (`codewire_review.py`, docs/Review-Method.md).
 
-Why these matter: in the first review by modules (app-b, 2026-10-26) every step was skipped once — a brief
+Why these matter: in the first review by modules (a 26.4k-line application, 2026-10-26) every step was skipped once — a brief
 written by hand made the map agents run the test suite, a trace file was left older than a map that landed
 after it, three test reviewers got stale cross nodes, and the review of rows whose code sat in another
 module bounced between groups. Each gate below must refuse that state and accept the good one, and each

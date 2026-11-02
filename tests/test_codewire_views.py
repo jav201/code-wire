@@ -1,6 +1,6 @@
 """Tests for the views of the event log and for C16 on a log (A2d).
 
-Why these matter: the spike of part 41 showed that the views find what one example per node hides.
+Why these matter: an early spike showed that the views find what one example per node hides.
 `_handle_load_project` got `'Label()'` from the button, `None` from the key and `'P1'` from a direct call:
 three examples on one node, one per entry point. The path from the button stopped at that node, and
 only the direct call went on to load the project. A view that merges the roots, drops the count of a

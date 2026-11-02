@@ -2,7 +2,7 @@
 
 Why these matter: a line that the parser does not read leaves the graph with no word. A key with a wrong
 letter (`fucn:`), a section with another title, or two merged blocks went out of the graph, and no tool
-said so. In the app data audit, two merged blocks lost a node from the recording. So each such line is an
+said so. In a data-flow audit, two merged blocks lost a node from the recording. So each such line is an
 error, on its own line number, and the lint exits with code 1. The graphs of the guide are correct:
 they have no such line, and the parse keeps each field.
 """

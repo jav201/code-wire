@@ -58,7 +58,7 @@ _ROOT_RX = {}
 
 def _root_rx():
     """The project folder with any form of its separators, and not as the start of a longer name
-    (`app` is not in `app-cwmap`). None for a folder with fewer than two parts (a drive)."""
+    (`app` is not in `app-wt`). None for a folder with fewer than two parts (a drive)."""
     root = ROOT_DIR[0]
     if root not in _ROOT_RX:
         parts = [p for p in re.split(r"[\\/]+", root) if p]
