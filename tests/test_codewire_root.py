@@ -1,6 +1,6 @@
 """Tests for the project folder before the hash (A2f).
 
-Why these matter: a recording of thread T1 in the worktree `app-cwmap-i1` and in the main checkout
+Why these matter: a recording of thread T1 in the worktree `app-wt-i1` and in the main checkout
 `app` (the same code) gave other hashes, only because each path of a test file names its checkout.
 A diff of two checkouts must stop at a real change, not at the name of the folder. The mask must not hide
 too much: a folder whose name only starts with the name of the project is a different folder, and a path
@@ -35,8 +35,8 @@ def h(path):
 
 
 def test_two_checkouts_give_the_same_hash(root):
-    root(BASE / "app-cwmap-i1")
-    a = h(BASE / "app-cwmap-i1" / "examples" / "case_01" / "firmware.s19")
+    root(BASE / "app-wt-i1")
+    a = h(BASE / "app-wt-i1" / "examples" / "case_01" / "firmware.s19")
     root(BASE / "app")
     b = h(BASE / "app" / "examples" / "case_01" / "firmware.s19")
     assert a == b
@@ -48,12 +48,12 @@ def test_another_file_in_the_project_is_still_a_change(root):
 
 
 def test_a_longer_name_is_not_the_project(root):
-    # `app` must not mask the start of `app-cwmap`: that is another folder
+    # `app` must not mask the start of `app-wt`: that is another folder
     root(BASE / "app")
     inside = h(BASE / "app" / "x.s19")
-    sibling = h(BASE / "app-cwmap" / "x.s19")
+    sibling = h(BASE / "app-wt" / "x.s19")
     assert inside != sibling
-    assert "<ROOT>" not in events.normalize(str(BASE / "app-cwmap" / "x.s19"))
+    assert "<ROOT>" not in events.normalize(str(BASE / "app-wt" / "x.s19"))
 
 
 def test_a_path_outside_the_project_stays(root):

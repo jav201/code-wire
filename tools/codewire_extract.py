@@ -381,7 +381,7 @@ def parse_findings(md_text):
 
 def unread(md_text):
     """The lines that the parser does not read: [{line, text}]. A tool skips such a line with no word,
-    so each one is an error. (In the app data audit, two merged blocks lost a node from the recording.)"""
+    so each one is an error. (In a data-flow audit, two merged blocks lost a node from the recording.)"""
     secs = numbered_sections(md_text)
     out = []
 
@@ -801,7 +801,7 @@ def main(argv=None):
     args = ap.parse_args(argv)
     parsed, failed = parse_files(args.repo)
     marks = extract_marks(parsed)
-    if args.path:   # one slice: the marks of other slices are not findings of this one (second-project M-13)
+    if args.path:   # one slice: the marks of other slices are not findings of this one (M-13)
         keep = [p.replace("\\", "/").strip("/") for p in args.path]
         marks = [m for m in marks if any(m["file"] == k or m["file"].startswith(k + "/") for k in keep)]
     graph_nodes, _, _, conflicts = load_graphs([g.read_text(encoding="utf-8") for g in args.graph])

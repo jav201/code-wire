@@ -1,6 +1,6 @@
 # Code-Wire — reviewing a code base by modules
 
-> The method, as the operator set it (2026-10-26), and the three gates that keep agents — and the orchestrator — from skipping a step. Used once on app-b (26.4k lines, 8 groups): 46 defects proven by failing tests, about 112 test findings proven by mutants.
+> The method, as the operator set it (2026-10-26), and the three gates that keep agents — and the orchestrator — from skipping a step. Used once on a 26.4k-line application (8 groups): 46 defects proven by failing tests, about 112 test findings proven by mutants.
 
 ## The steps
 

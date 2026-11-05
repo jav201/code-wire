@@ -1,9 +1,9 @@
 """Tests for the Textual adapter (A2b).
 
-Why these matter: in the spike of part 41, every event after the Load dialog had no root until the
+Why these matter: in an early spike, every event after the Load dialog had no root until the
 recorder followed `call_after_refresh`. In a Textual app most user actions reach a node through a
 hand-off: a message, a dialog and its callback, a worker, a later call. If the root does not cross the
-hand-off, the node is filed under the wrong entry point or under `harness`, and the matrix of part 41
+hand-off, the node is filed under the wrong entry point or under `harness`, and the spike's matrix
 shows a bug (a path that stops) where there is none, or hides one. The screen channel is the other half:
 in a UI the observable truth is what the screen shows, not the return value (MF-3).
 """
@@ -169,7 +169,7 @@ def test_the_screen_channel_holds_what_the_user_sees():
 
 def test_a_direct_call_in_the_app_is_still_the_harness():
     async def script(app, pilot):
-        app.later("direct")            # what the app tests do: call the handler, not the key
+        app.later("direct")            # what the application's tests do: call the handler, not the key
     ev = run(script)
     assert ev[("parse", "direct")]["root"] == events.HARNESS
 

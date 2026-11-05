@@ -91,7 +91,7 @@ def test_address_value_pair_must_match_as_a_pair():
 
 
 def test_a_line_with_no_anchor_is_not_reported_as_ok():
-    # M-6 (first-use): 5 of 31 "ok" lines had nothing to compare. An ok must mean "checked and true".
+    # M-6 (first real use): 5 of 31 "ok" lines had nothing to compare. An ok must mean "checked and true".
     rows = ce.check([node("load", "(AC-1) the node reads the file and gives its records")], {"AC-1": {"load": [CALL]}})
     assert rows[0][2] == "no_anchor"
 
@@ -104,7 +104,7 @@ def test_short_quoted_text_must_equal_a_whole_recorded_string():
 
 
 def test_recorder_skips_a_node_with_no_code_and_lists_it(tmp_path, monkeypatch):
-    # M-7 (first-use): in forward, a NEW node has no def yet. The recorder stopped the whole test
+    # M-7 (first real use): in forward, a NEW node has no def yet. The recorder stopped the whole test
     # run, so the agent had to write recording-only copies of each graph.
     (tmp_path / "shipped.py").write_text("def old(x):\n    return x\n", encoding="utf-8")
     graph = tmp_path / "g.md"
@@ -136,7 +136,7 @@ def test_bare_number_gets_a_warning_and_a_count_in_parentheses_does_not():
 
 
 def test_the_report_starts_with_the_lines_that_no_recording_backs():
-    # second-project batches 006 and 009 ran no recording: every line stayed plausible and not checked, and every gate
+    # Two batches of a second project ran no recording: every line stayed plausible and not checked, and every gate
     # was green. The count of such lines is the first fact of the report, so it cannot hide.
     rows = ce.check([node("load", "(AC-1) → 0x1000"), node("load", "(case_03) → 0x1000")], {"AC-1": {"load": [CALL]}})
     first = ce.render(rows, {"AC-1": {}}).splitlines()[2]
@@ -144,7 +144,7 @@ def test_the_report_starts_with_the_lines_that_no_recording_backs():
 
 
 def test_a_boolean_or_none_in_backticks_is_an_anchor():
-    # the F6 test: `flow_change_census_complete` gave True on an incomplete section, and the line that said
+    # a flow test: a census function gave True on an incomplete section, and the line that said
     # `False` passed, because a boolean was not an anchor and the other quoted values were inputs
     call = {"in": {"section": "data.json [CHG-X]"}, "out": True}
     assert ce.check_line('(T) section "data.json [CHG-X]" → `False`', [call]) == ["False"]
@@ -155,7 +155,7 @@ def test_a_boolean_or_none_in_backticks_is_an_anchor():
 
 
 def test_a_drift_on_a_cut_value_says_so():
-    # the F6 test: an example about the end of a long output drifted, because the recorder kept 40 items
+    # a flow test: an example about the end of a long output drifted, because the recorder kept 40 items
     calls = {"T": {"load": [{"in": {}, "out": ["row 0", "row 1", "… total 644"]}]}}
     (row,) = ce.check([node("load", '(T) → "row 643"')], calls)
     assert row[2] == "drift" and "the recorder cut a long value" in row[3]
@@ -163,7 +163,7 @@ def test_a_drift_on_a_cut_value_says_so():
     assert row[2] == "ok"
 
 
-# A1, from the app audits of 2026-10-23 (data MF-3, MF-4; UI MF-2)
+# A1, from two audits of 2026-10-23 (data MF-3, MF-4; UI MF-2)
 
 def test_a_float_in_backticks_is_an_anchor_with_a_tolerance():
     # data CW-D-10: the decoded value 3000.0 against the 30.0 that the A2L text gives. Before A1 a float
@@ -190,7 +190,7 @@ def test_screen_padding_does_not_make_a_drift():
 
 
 def test_one_trace_with_no_thread_name_serves_every_thread(tmp_path):
-    # the F6 test: with one `--trace` the README way, every line of the nine probe threads was "no recording"
+    # a flow test: with one `--trace` the README way, every line of the nine probe threads was "no recording"
     g = tmp_path / "g.md"
     g.write_text("## Nodes\n\nload\nin: str path\nout: int n\nmodule: m.py\n"
                  "examples: (P1) → 0x1000\nexamples: (P2) → 0x1000\n", encoding="utf-8")
@@ -202,7 +202,7 @@ def test_one_trace_with_no_thread_name_serves_every_thread(tmp_path):
 
 
 def test_the_recorder_writes_no_trace_file_unless_asked(tmp_path, monkeypatch):
-    # the F6 test: the pytest plugin wrote cw-trace.json into the root of the audited repository
+    # a flow test: the pytest plugin wrote cw-trace.json into the root of the audited repository
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(rec, "OUT", None)
     rec.save(events_path=tmp_path / "ev.jsonl")

@@ -1,8 +1,8 @@
 """Tests: the extractor and C16 exit 1 when a line of "done" does not hold.
 
 Why these matter: the method says "done = each example holds and the extractor has no drift", and
-agents read the exit code, not the report. In second-project batch 009 the cheap checks were green while problems
-were open, and in the F6 test C16 gave a false ok. A tool that writes a drift into its report and exits
+agents read the exit code, not the report. In one real batch the cheap checks were green while problems
+were open, and in a flow test C16 gave a false ok. A tool that writes a drift into its report and exits
 0 lets an agent say "no drift" with a green run. So each state that is not a held line exits 1. A line
 with no recording at all stays 0: a regression test can be its proof, and the report puts it first.
 """
