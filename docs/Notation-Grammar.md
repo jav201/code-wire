@@ -33,7 +33,7 @@ Each section is optional, but a graph has `## Nodes`. A block that starts with `
 
 ```text
 node        = node-name NL { node-field NL } ;
-node-name   = ? the qualname of the function or method: "f" or "Class.method" ? ;
+node-name   = ? the qualname of the function or method: "f" or "Class.method"; or a prefix, then ".", then the qualname, when the prefix is the stem or a parent folder of the `module:` file (`home.draw` in `views/home.py`) ? ;
 node-field  = key ":" [ " " value ] ;
 key         = "req" | "in" | "out" | "func" | "module" | "examples"
             | "modify" | "volatile" | "oracle" ;

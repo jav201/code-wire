@@ -9,7 +9,7 @@
 
 **A short text map of the functions a change touches, so agents and reviewers design and check against the map instead of reading the code.**
 
-Status: v3.1. Used on real Python code bases; read *Limits* before adopting.
+Status: v3.2. Used on real Python code bases; read *Limits* before adopting.
 
 ## What it is
 
@@ -70,14 +70,14 @@ python -m pytest tests                  # optional: the tool tests (needs pytest
 ## Use
 
 1. Write the map for the functions your change touches. `docs/Metodologia.md` gives the method in seven short sections; `docs/Notation-Grammar.md` gives the exact line format.
-2. Put a mark `# node: <name>` above each function, then check the map against the code:
+2. The prototype is the map only; write nothing in the source. To check the map against the code, let `codewire_marks.py` write the marks `# node: <name>` into a throwaway clone, then run the tools there:
 
    ```sh
    python tools/codewire_extract.py --repo <your-repo> --graph map.md --path <folder> --out out/
    python tools/codewire_lint.py map.md     # lists lines the parser does not read
    ```
 
-3. Turn each example into a test. Done when every example holds and the extractor exits 0.
+3. Turn each example into a test. Done when every example holds. The extractor report is a list for the person who integrates the change; the next design starts from this graph, so bring it up to date.
 
 To review a whole code base by modules with several agents, see `docs/Review-Method.md` and `tools/codewire_review.py`.
 
