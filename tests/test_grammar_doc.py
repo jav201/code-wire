@@ -50,7 +50,7 @@ def test_an_empty_in_is_a_function_with_no_parameter():
 def test_none_in_parentheses_is_a_function_with_no_parameter():
     """The grammar says `(none)` means no input; the author wrote it, and the parser must read it so
     (before, it was an input named `(none)` and the extractor reported it as missing in the code)."""
-    assert "Empty or `(none)` for no parameter" in DOC
+    assert "Empty, `(none)` or `none` (any case) for no parameter" in DOC
     md = "## Nodes\n\nview_lines\nreq: R-1\nin: (none)\nout: list[str] lines\nmodule: app/views/home.py\n"
     assert cw.parse_graph(md)[0]["in"] == []
     assert cw.unread(md + "volatile: out\n") == []

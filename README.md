@@ -73,7 +73,8 @@ python -m pytest tests                  # optional: the tool tests (needs pytest
 2. The prototype is the map only; write nothing in the source. To check the map against the code, let `codewire_marks.py` write the marks `# node: <name>` into a throwaway clone, then run the tools there:
 
    ```sh
-   python tools/codewire_extract.py --repo <your-repo> --graph map.md --path <folder> --out out/
+   python tools/codewire_marks.py --repo <clone> --graph map.md
+   python tools/codewire_extract.py --repo <clone> --graph map.md --path <folder> --out out/
    python tools/codewire_lint.py map.md     # lists lines the parser does not read
    ```
 

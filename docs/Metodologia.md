@@ -1,6 +1,6 @@
 # Code-Wire — the method
 
-> v3.2 (2026-11-12): the tools read what authors write; the extractor gives a list. One run on five graphs (312 nodes) gave 78 findings, and 60 were not drift: they were three notations that authors wrote and the tools did not read. This version removes the stub sentence of §5, the extractor as a condition of "Done", and `findings=` in the lint line. The history is in git.
+> v3.2 (2026-11-12): the tools read what authors write. In one run, 60 of 78 extractor findings were unread notations. Removed: the stub of §5, the extractor as a condition of "Done", `findings=` in the lint line. History: git.
 
 ## 1. The idea
 
@@ -63,11 +63,11 @@ A write that a worker makes later is not in the values after the call.
 - **Find.** Two things find defects: an example written from the requirement (or the `oracle:`), and the list of the real callers in the extractor report, also the callers outside the slice ("Top-level sites"). In a flow test, three defects came from examples and one from a caller in another file.
 - **Prove.** A defect counts only with a run that shows it: a regression test that fails before the fix and passes after, or a C16 drift.
 - **Confirm and keep.** C16 (`codewire_examples.py`) checks many example lines against a recording at once, and keeps the record. With a root, only the calls from that root count; `expect none` and an offer check one step. The report starts with the lines that no recording backs. C16 exits 1 when a line with a recording does not hold (drift, no def, not run, no anchor); a line with no recording does not fail it, because a test can be its proof.
-- **The other two tools:** the extractor (`codewire_extract.py`) binds each mark `# node: name` to its def, checks the contract (inputs, types, defaults, output, module), and lists the real calls; `--path` keeps it to one slice. It exits 1 on a drift. The report is a list for the person who integrates the change: they read it and rule on it. The next design starts from this graph, so bring it up to date. `--layered`: the graphs are successive increments, and a later node replaces the earlier one of its name (the report counts them). The lint (`codewire_lint.py`) lists each graph line that the parser does not read: an error.
+- **The other two tools:** the extractor (`codewire_extract.py`) binds each mark `# node: name` to its def, checks the contract (inputs, types, defaults, output, module), and lists the real calls; `--path` keeps it to one slice. It exits 1 on a drift; its report is a list for the integrator. The next design starts from this graph, so bring it up to date. `--layered` (also C16): a later graph replaces a node of the same module and name. The lint (`codewire_lint.py`) lists each graph line that the parser does not read: an error.
 
 ## 5. On a change, and in an audit
 
-- **A change.** Before the code: write the nodes that change, with examples from the requirement, and nothing in the source: the prototype is the graph only. After the code: run the examples (a test or a recording with C16). To check the graph against the code, `codewire_marks.py` writes the marks into a throwaway clone and the extractor runs there. Done = each example holds (a test or C16).
+- **A change.** Before the code: write the nodes that change, with examples from the requirement; the prototype is the graph only. After the code: run the examples (a test or C16); to check the graph, `codewire_marks.py` marks a throwaway clone and the extractor runs there. Done = each example holds.
 - **An audit of existing code.** (1) For each function, find what it must do: a requirement, a spec, a document. (2) Write one example from that, not from the code. (3) Mark the functions and run the extractor; read the callers, also outside the slice. (4) Run each example (a probe or a test). (5) Each example that does not hold is a candidate; it is a finding when a regression test shows it. Done = each finding has a test that failed before the fix and passes after.
 - **The review.** A person reads the summary (the findings with their tests, what changed), not the graph.
 
