@@ -25,7 +25,7 @@ Code-Wire describes a part of a program as black-box functions. Each function ge
 
 1. **Map.** Write a node for each function the change touches: inputs, output, what it does, and an example from the requirement, not from the code.
 2. **Review the map.** Reviewers read the map and the requirements, with no code.
-3. **Check against the code.** `codewire_extract.py` compares the map's contracts with the code and lists the real callers of each function, also outside the slice. It exits 1 on any drift.
+3. **Check against the code.** In a throwaway clone, `codewire_extract.py` compares the map's contracts with the code and lists the real callers of each function, also outside the slice. Its report is a list to rule on; it exits 1 when it finds drift.
 4. **Prove.** Each example becomes a test. A defect counts only when a test fails before the fix and passes after.
 
 ```
@@ -42,7 +42,7 @@ examples: (T-8) alarms (1 of 1) "A 10:02 disk full" → count `1`
 
 One run per comparison, on one production Python code base (a ~80k-line Textual TUI). Treat them as evidence, not as benchmarks.
 
-**Prototyping a change with the map, against the previous comparable change without it.** Two increments of the same batch, similar scope (10 and 11 low-level requirements, 4 source files each), both run with [dev-flow](https://github.com/<owner>/dev-flow).
+**Prototyping a change with the map, against the previous comparable change without it.** Two increments of the same batch, similar scope (10 and 11 low-level requirements, 4 source files each), both run with [dev-flow](https://github.com/jav201/dev-flow).
 
 | | Without the map | With the map |
 |---|---:|---:|
@@ -61,7 +61,7 @@ One run per comparison, on one production Python code base (a ~80k-line Textual 
 Python 3.11 or 3.12, standard library only. No package to install.
 
 ```sh
-git clone https://github.com/<owner>/code-wire.git
+git clone https://github.com/jav201/code-wire.git
 cd code-wire
 export PYTHONPATH="$PWD/tools"          # PowerShell: $env:PYTHONPATH = "$PWD\tools"
 python -m pytest tests                  # optional: the tool tests (needs pytest)
@@ -78,11 +78,13 @@ python -m pytest tests                  # optional: the tool tests (needs pytest
    python tools/codewire_lint.py map.md     # lists lines the parser does not read
    ```
 
+   For the maps of successive increments, pass each with `--graph`, oldest first, and add `--layered` to the marks and the extractor: a later map replaces the same function (same module and name) of an earlier one.
+
 3. Turn each example into a test. Done when every example holds. The extractor report is a list for the person who integrates the change; the next design starts from this graph, so bring it up to date.
 
 To review a whole code base by modules with several agents, see `docs/Review-Method.md` and `tools/codewire_review.py`.
 
-**Best paired with [dev-flow](https://github.com/<owner>/dev-flow).** dev-flow runs the change (requirements, increments, independent review, evidence); Code-Wire is its design prototype, reviewed before any code is written.
+**Best paired with [dev-flow](https://github.com/jav201/dev-flow).** dev-flow runs the change (requirements, increments, independent review, evidence); Code-Wire is its design prototype, reviewed before any code is written.
 
 ## Limits
 
