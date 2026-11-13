@@ -2,14 +2,16 @@
 throwaway worktree, so the text stays the only source (C14) and nothing has to be rebased when the
 code moves.
 
-For every node, the def named by the node (qualname) in its `module:` file gets
+For every node, the def named by the node (qualname, or the qualname after a module prefix: `home.draw`
+in `views/home.py`) in its `module:` file gets
 `# node: <name>  [<req>, ...]` on the line above it (above its decorators, same indentation),
 exactly what `codewire_extract.extract_marks` reads. A node whose file or def is gone is reported,
-not guessed: in a snapshot that is "node without code". Before writing, the marks of the previous
+not guessed: in a snapshot that is "node without code"; so is a second node on a def that has a
+mark (a renamed node that an earlier graph still has). Before writing, the marks of the previous
 run are removed with `git checkout` on the touched files; if the worktree has any change that is not
 an added mark line, nothing is touched (DirtyWorktree).
 
-    python codewire_marks.py --repo <worktree> --graph G1.md [--graph G2.md] [--out marks.json]
+    python codewire_marks.py --repo <worktree> --graph G1.md [--graph G2.md] [--layered] [--out marks.json]
 """
 import argparse
 import ast
@@ -69,7 +71,7 @@ def emit(repo, nodes):
         nl = "\r\n" if "\r\n" in raw else "\n"
         lines = raw.split(nl)
         defs = {q: fn for q, fn, _ in cw.defs_with_qualnames(ast.parse(raw))}
-        inserts = []
+        inserts, bound = [], {}
         for n in file_nodes:
             fn = defs.get(n["name"])
             if fn is None and (short := cw.drop_module_prefix(n["name"], rel)):
@@ -77,6 +79,10 @@ def emit(repo, nodes):
             if fn is None:
                 missing.append({"name": n["name"], "module": rel, "why": "no def"})
                 continue
+            if id(fn) in bound:
+                missing.append({"name": n["name"], "module": rel, "why": f"same def as `{bound[id(fn)]}`"})
+                continue
+            bound[id(fn)] = n["name"]
             first = min([fn.lineno] + [d.lineno for d in fn.decorator_list])
             inserts.append((first, mark_line(n, fn.col_offset), n["name"]))
         for first, text, _ in sorted(inserts, reverse=True):
@@ -95,7 +101,7 @@ def main(argv=None):
     ap.add_argument("--repo", required=True, type=Path)
     ap.add_argument("--graph", required=True, type=Path, action="append")
     ap.add_argument("--layered", action="store_true",
-                    help="the graphs are successive increments: a later node replaces the earlier one of its name")
+                    help="the graphs are successive increments: a node replaces the one of its module and name from an earlier graph")
     ap.add_argument("--out", type=Path)
     a = ap.parse_args(argv)
     replaced = []
@@ -104,7 +110,7 @@ def main(argv=None):
     if a.out:
         a.out.write_text(json.dumps({"placed": placed, "missing": missing, "conflicts": conflicts, "replaced": replaced}, indent=1), encoding="utf-8")
     print(f"{len(placed)} marks written, {len(missing)} nodes without code" + (f", conflicts {conflicts}" if conflicts else "")
-          + (f", {len(replaced)} nodes replaced by a later graph" if replaced else ""))
+          + (f", {len(replaced)} nodes replaced by a later graph: {', '.join(replaced)}" if replaced else ""))
     for m in missing:
         print(f"  missing: {m['name']} ({m['module']}): {m['why']}")
     return 0

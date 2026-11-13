@@ -246,3 +246,9 @@ def test_a_map_that_lands_later_refreshes_the_test_reviewers_copy_too(work):
     assert run(work, "map-gate", "--group", "G2") == 0
     traces = (work / "G1-tests" / "_map" / "TRACES.md").read_text(encoding="utf-8")
     assert "Maps included: G1, G2" in traces
+
+
+def test_a_module_prefix_on_a_node_name_passes_the_map_gate(work):
+    """Review F4: the grammar reads `c.h` with `module: pkg/c.py` as the def `h`; map-gate said "no node"."""
+    mapped(work, "G1", GRAPH_G1.replace("h\nreq: R-2", "c.h\nreq: R-2"))
+    assert run(work, "map-gate", "--group", "G1") == 0
