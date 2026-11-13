@@ -197,8 +197,10 @@ def was_cut(value):
 
 
 def step_calls(trace, node, src):
-    """The calls of `node` in the step (and from the root) that a source names."""
-    return [c for c in trace.get(node, []) if c.get("step") == src["step"] and (not src["root"] or c.get("root") == src["root"])]
+    """The calls of `node` in the step (and from the root) that a source names. A bare name (an offer) also
+    reads the `module:name` keys of a name that two modules share."""
+    keys = [k for k in trace if k == node or (":" in k and k.rsplit(":", 1)[1] == node)]
+    return [c for k in keys for c in trace[k] if c.get("step") == src["step"] and (not src["root"] or c.get("root") == src["root"])]
 
 
 def step_known(trace, src):

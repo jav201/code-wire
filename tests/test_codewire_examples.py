@@ -279,3 +279,16 @@ def test_c16_layered_checks_the_later_node_and_without_it_says_the_conflict(tmp_
     assert "1 nodes replaced by a later graph: f" in capsys.readouterr().out
     assert ce.main(args) == 1
     assert "conflicts ['f']" in capsys.readouterr().out
+
+
+def test_an_offer_of_a_name_that_two_modules_share_reads_the_calls_of_both(tmp_path):
+    """Re-review R1: the recorder keeps a shared name as `module:name`, and an offer names it bare (an author
+    never qualifies a name); the offer looked up the bare name, found nothing, and was always drift."""
+    entities = cw.parse_entity_blocks('## Entities\n\n[Interface: KeyBar]\noffers: (T1, S1) "q" → on_key\n')
+    trace = {"_steps": ["S1", "S2"], "app/views/home.py:on_key": [{"step": "S1", "root": "harness"}],
+             "app/views/variants.py:on_key": [{"step": "S2", "root": "harness"}]}
+    assert [r[4] for r in ce.check_offers(entities, {"T1": trace})] == ["ok"]
+    trace["app/views/home.py:on_key"][0]["step"] = "S2"
+    assert [r[4] for r in ce.check_offers(entities, {"T1": trace})] == ["drift"]
+    # a full key (`expect none` of one node) still reads only its own calls
+    assert ce.expect_none(trace, "app/views/home.py:on_key", {"step": "S1", "root": None}) == ("ok", "")

@@ -736,7 +736,9 @@ def diff(marks, graph_nodes, lifted, top_level, conflicts=(), replaced=()):
             add("graph_examples_missing", node["module"] or "?", f"`{node['name']}` has no `examples:` line")
         m = mark_of(node)
         if m is None:
-            add("graph_node_without_mark", node["module"] or "?", f"`{node['name']}`")
+            moved = [n["module"] for n in graph_nodes if n["name"] == node["name"] and n is not node and n["module"]]
+            add("graph_node_without_mark", node["module"] or "?", f"`{node['name']}`"
+                + (f" (a node of this name is also in `{'`, `'.join(moved)}`: moved?)" if moved else ""))
             continue
         where = f"{m['file']}:{m['line']}"
         d = m["def"]

@@ -602,3 +602,14 @@ def test_the_report_names_a_module_only_for_a_name_that_two_modules_share(tmp_pa
     assert msgs["unique"] and not [m for m in msgs["unique"] if ".py" in m]
     assert "2 replaced by a later graph: `view_lines`, `app/store/items.py:render`" in msgs["shared"]
     assert not [m for m in msgs["shared"] if ".py" in m and "render" not in m]
+
+
+def test_a_node_without_mark_names_the_other_module_of_its_name():
+    """Re-review R2: a function moved to another module under `--layered` read as "no code yet" in its old
+    module, with no word of the node of the same name that has code."""
+    g1 = "## Nodes\n\n" + _block("draw", "app/views/home.py")
+    g2 = "## Nodes\n\n" + _block("draw", "app/views/variants.py")
+    marks = [{"name": "draw", "reqs": ["R-1"], "file": "app/views/variants.py", "line": 1,
+              "def": {"qualname": "draw", "line": 2, "params": [{"name": "n", "type": "int", "default": None}], "returns": "int"}}]
+    findings, _ = cw.diff(marks, cw.load_graphs([g1, g2], layered=True)[0], {}, {})
+    assert [f["msg"] for f in findings] == ["`draw` (a node of this name is also in `app/views/variants.py`: moved?)"]
