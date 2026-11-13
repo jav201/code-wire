@@ -101,3 +101,13 @@ def test_the_lint_fails_on_each_line_that_is_not_read(tmp_path, capsys):
     empty = tmp_path / "empty.md"
     empty.write_text("# no graph\n", encoding="utf-8")
     assert lint.main([str(empty)]) == 1
+
+
+def test_the_lint_summary_starts_with_not_read_and_has_no_findings_count(tmp_path, capsys):
+    """`findings=N` counted the entries of `## Findings`; readers took it for lint errors (recorded 13
+    times as "lint exit 0"). The line starts with what the lint is about: the lines not read."""
+    ok = tmp_path / "ok.md"
+    ok.write_text(LESSON6, encoding="utf-8")
+    assert lint.main([str(ok)]) == 0
+    line = capsys.readouterr().out.splitlines()[-1]
+    assert line.startswith("not read=0 ") and "findings=" not in line

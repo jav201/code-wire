@@ -22,7 +22,10 @@ characters), the detail says so.
 A3a: a line whose source names its root (`(U2, U2.4, root TuiApp.on_button_pressed)`) compares only with
 the recorded calls of that root; with no such call, the line is `root_not_run`.
 
-    python codewire_examples.py --graph G1.md [--graph G2.md] --trace AC-1=trace.json --out report.md
+A node is named by its name (`module:name` when two modules have a node of that name). `--layered` reads
+the graphs as the extractor does.
+
+    python codewire_examples.py --graph G1.md [--graph G2.md] [--layered] --trace AC-1=trace.json --out report.md
 """
 import argparse
 import json
@@ -153,32 +156,33 @@ def check_line(line, calls):
 def check(graph_nodes, traces):
     """One row per `examples:` line: (node, thread, status, detail, bare numbers)."""
     rows = []
-    for node in graph_nodes:
+    for node in cw.with_keys(graph_nodes):
+        key = node["key"]
         for line in node["examples"]:
             src = cw.example_source(line)
             thread = src["thread"] or "?"
             bare = bare_numbers(line)
             if thread not in traces:
-                rows.append((node["name"], thread, "no_trace", "no recorded run for this thread", bare))
+                rows.append((key, thread, "no_trace", "no recorded run for this thread", bare))
             elif EXPECT_NONE.search(line):
-                rows.append((node["name"], thread, *expect_none(traces[thread], node["name"], src), bare))
-            elif node["name"] in traces[thread].get("_skipped", []):
-                rows.append((node["name"], thread, "no_def", "the node has no code yet: the recorder skipped it", bare))
-            elif not traces[thread].get(node["name"]):
-                rows.append((node["name"], thread, "node_not_run", "the run never called this node", bare))
-            elif src["root"] and not [c for c in traces[thread][node["name"]] if c.get("root") == src["root"]]:
-                rows.append((node["name"], thread, "root_not_run", f"no recorded call of this node from the root `{src['root']}`", bare))
+                rows.append((key, thread, *expect_none(traces[thread], key, src), bare))
+            elif key in traces[thread].get("_skipped", []):
+                rows.append((key, thread, "no_def", "the node has no code yet: the recorder skipped it", bare))
+            elif not traces[thread].get(key):
+                rows.append((key, thread, "node_not_run", "the run never called this node", bare))
+            elif src["root"] and not [c for c in traces[thread][key] if c.get("root") == src["root"]]:
+                rows.append((key, thread, "root_not_run", f"no recorded call of this node from the root `{src['root']}`", bare))
             elif not any(anchors(line)):
-                rows.append((node["name"], thread, "no_anchor", "the line has no literal value to compare", bare))
+                rows.append((key, thread, "no_anchor", "the line has no literal value to compare", bare))
             else:
-                calls = traces[thread][node["name"]]
+                calls = traces[thread][key]
                 if src["root"]:   # A3a: a line that names its root compares only with the calls of that root
                     calls = [c for c in calls if c.get("root") == src["root"]]
                 missing = check_line(line, calls)
                 detail = "" if not missing else "not in the run: " + ", ".join(f"`{x}`" for x in missing)
                 if missing and any(was_cut(c) for c in calls):
                     detail += " (the recorder cut a long value of this call: the anchor can be after the cut)"
-                rows.append((node["name"], thread, "ok" if not missing else "drift", detail, bare))
+                rows.append((key, thread, "ok" if not missing else "drift", detail, bare))
     return rows
 
 
@@ -193,8 +197,10 @@ def was_cut(value):
 
 
 def step_calls(trace, node, src):
-    """The calls of `node` in the step (and from the root) that a source names."""
-    return [c for c in trace.get(node, []) if c.get("step") == src["step"] and (not src["root"] or c.get("root") == src["root"])]
+    """The calls of `node` in the step (and from the root) that a source names. A bare name (an offer) also
+    reads the `module:name` keys of a name that two modules share."""
+    keys = [k for k in trace if k == node or (":" in k and k.rsplit(":", 1)[1] == node)]
+    return [c for k in keys for c in trace[k] if c.get("step") == src["step"] and (not src["root"] or c.get("root") == src["root"])]
 
 
 def step_known(trace, src):
@@ -262,10 +268,13 @@ def main(argv=None):
     ap.add_argument("--graph", required=True, type=Path, action="append")
     ap.add_argument("--trace", required=True, action="append",
                     help="THREAD=events.jsonl (or a trace.json); with no THREAD=, the log is the run of every thread")
+    ap.add_argument("--layered", action="store_true",
+                    help="the graphs are successive increments: a node replaces the one of its module and name from an earlier graph")
     ap.add_argument("--out", required=True, type=Path)
     a = ap.parse_args(argv)
     texts = [g.read_text(encoding="utf-8") for g in a.graph]
-    nodes, _, _, _ = cw.load_graphs(texts)
+    replaced = []
+    nodes, _, _, conflicts = cw.load_graphs(texts, a.layered, replaced)
     entities = [e for t in texts for e in cw.parse_entity_blocks(t)]
     threads = {cw.example_source(l)["thread"] for n in nodes for l in n["examples"]}
     threads |= {o["source"]["thread"] for e in entities for o in e.get("offers", []) if o["source"]}
@@ -286,6 +295,10 @@ def main(argv=None):
     broken = sum(1 for r in offers if r[4] in FAILS)
     no_rec = sum(1 for r in rows if r[2] == "no_trace")
     print(f"{len(rows)} example lines, {no_rec} with no recording, {drift} that do not hold; {len(offers)} offers, {broken} not kept -> {a.out}")
+    if conflicts:
+        print(f"conflicts {conflicts}: the first graph's node is checked, the examples of the other are not")
+    if replaced:
+        print(f"{len(replaced)} nodes replaced by a later graph: {', '.join(replaced)}")
     return 1 if drift or broken else 0
 
 

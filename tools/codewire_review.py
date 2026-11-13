@@ -102,7 +102,7 @@ def changed(copy, base):
 def check_map(w, g):
     text = w.graph(g).read_text(encoding="utf-8")
     blocks = node_blocks(text)
-    have = {(m, n) for n, m, *_ in blocks}
+    have = {(m, n) for n, m, *_ in blocks} | {(m, cw.drop_module_prefix(n, m)) for n, m, *_ in blocks}
     code = {(f, q) for f in w.files[g] for q in defs(w.base / f)}
     tids = test_ids(w.base)
     problems = [f"line {u['line']} not read: {u['text']}" for u in cw.unread(text)]

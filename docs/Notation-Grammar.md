@@ -42,7 +42,7 @@ key         = "req" | "in" | "out" | "func" | "module" | "examples"
 | Field | Value |
 |---|---|
 | `req:` | the requirement ids, separated by `,`; `to trace` when there is none yet |
-| `in:` | each parameter as `type name`, separated by `;`; also the ones with a default (`str path = "logs/a.txt"`). Empty for no parameter. `X?` is an optional type; `(Callable) A->B name` is a function as input; `Class self` only when the node uses data of its object that no entity names |
+| `in:` | each parameter as `type name`, separated by `;`; also the ones with a default (`str path = "logs/a.txt"`). Empty, `(none)` or `none` (any case) for no parameter. `X?` is an optional type; `(Callable) A->B name` is a function as input; `Class self` only when the node uses data of its object that no entity names |
 | `out:` | one output, `type name`; `tuple(A a, B b)` for more than one value; `None` when the node only changes state |
 | `func:` | what the node does, in one or two lines |
 | `module:` | the file, from the root of the repository |
@@ -51,7 +51,7 @@ key         = "req" | "in" | "out" | "func" | "module" | "examples"
 | `volatile:` | the values that change in each run, separated by `,`: an input, `out` or an output name, with fields after dots (`prepared.mac_cache_key`). The recorder keeps them in the event; the hash does not use them |
 | `oracle:` | a source of truth outside the code: a standard, a README section, a file of examples. Repeat for more |
 
-A key two times in one node is an error, except `examples:` and `oracle:`.
+A key two times in one node is an error, except `examples:` and `oracle:`. Two nodes with the same name in different modules are two nodes, and reports name the module only for such names, so a module prefix (`home.draw`) is not needed; the tools still read it.
 
 ### 3.1 Example lines
 

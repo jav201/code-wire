@@ -207,3 +207,88 @@ def test_the_recorder_writes_no_trace_file_unless_asked(tmp_path, monkeypatch):
     monkeypatch.setattr(rec, "OUT", None)
     rec.save(events_path=tmp_path / "ev.jsonl")
     assert (tmp_path / "ev.jsonl").exists() and not (tmp_path / "cw-trace.json").exists()
+
+
+# ---------- v3.2 fix: a node is its module and its name (recorder and C16) ----------
+
+def _write(root, rel, text):
+    f = root / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(text, encoding="utf-8")
+    return f
+
+
+def test_recorder_and_c16_read_a_module_prefix(tmp_path, monkeypatch):
+    """Review F2: the grammar allows `home.draw` with `module: …/home.py`; the recorder looked for an
+    attribute `home`, skipped the node, and C16 said "no code yet" and exited 1."""
+    _write(tmp_path, "pfx_app/views/home.py", "def draw(n):\n    return n * 2\n")
+    text = "## Nodes\n\nhome.draw\nin: int n\nout: int r\nmodule: pfx_app/views/home.py\nexamples: (T) n `3` → r `6`\n"
+    graph = _write(tmp_path, "g.md", text)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    rec.TRACE.clear()
+    rec.install([str(graph)])
+    import pfx_app.views.home as home
+    assert home.draw(3) == 6
+    assert rec.TRACE["_skipped"] == [] and rec.TRACE["home.draw"][0]["out"] == 6
+    assert [r[2] for r in ce.check(cw.load_graphs([text])[0], {"T": rec.TRACE})] == ["ok"]
+
+
+def test_one_name_in_two_modules_is_recorded_and_checked_apart(tmp_path, monkeypatch):
+    """Two functions `draw` in two modules: the calls of one must not prove the examples of the other."""
+    _write(tmp_path, "two_app/views/home.py", "def draw(n):\n    return n + 1\n")
+    _write(tmp_path, "two_app/views/variants.py", "def draw(n):\n    return n + 2\n")
+    text = ("## Nodes\n\ndraw\nin: int n\nout: int r\nmodule: two_app/views/home.py\n"
+            "examples: (T) n `1` → r `2`\nexamples: (T) → r `3`\n\n"
+            "draw\nin: int n\nout: int r\nmodule: two_app/views/variants.py\nexamples: (T) n `1` → r `3`\n")
+    graph = _write(tmp_path, "g.md", text)
+    monkeypatch.syspath_prepend(str(tmp_path))
+    rec.TRACE.clear()
+    rec.install([str(graph)])
+    import two_app.views.home as home
+    import two_app.views.variants as variants
+    assert (home.draw(1), variants.draw(1)) == (2, 3)
+    assert rec.TRACE["two_app/views/home.py:draw"][0]["out"] == 2
+    assert rec.TRACE["two_app/views/variants.py:draw"][0]["out"] == 3
+    rows = ce.check(cw.load_graphs([text])[0], {"T": rec.TRACE})
+    assert [(r[0], r[2]) for r in rows] == [("two_app/views/home.py:draw", "ok"), ("two_app/views/home.py:draw", "drift"),
+                                            ("two_app/views/variants.py:draw", "ok")]
+
+
+def test_the_recorder_reads_successive_graphs_as_layers(tmp_path, monkeypatch):
+    """Review F3: the first graph won, so the recorder used the old contract against the new code; here
+    the later graph adds `modify: xs`, and the value after the call is recorded only with the later node."""
+    _write(tmp_path, "lay_app/fill.py", "def fill(xs, k=0):\n    xs.append(k)\n")
+    g1 = _write(tmp_path, "g1.md", "## Nodes\n\nfill\nin: list xs\nout: None\nmodule: lay_app/fill.py\n")
+    g2 = _write(tmp_path, "g2.md", "## Nodes\n\nfill\nin: list xs; int k = 0\nout: None\nmodule: lay_app/fill.py\n"
+                                   "modify: xs (append)\n")
+    monkeypatch.syspath_prepend(str(tmp_path))
+    rec.TRACE.clear()
+    rec.install([str(g1), str(g2)])
+    import lay_app.fill as fill
+    fill.fill([])
+    assert rec.TRACE["fill"][0]["after"] == {"xs": [0]}
+
+
+def test_c16_layered_checks_the_later_node_and_without_it_says_the_conflict(tmp_path, capsys):
+    """Review F3: C16 kept the earlier node and dropped the later node's examples with no word."""
+    g1 = _write(tmp_path, "g1.md", "## Nodes\n\nf\nin: int n\nout: int r\nmodule: m.py\nexamples: (T) n `5` → r `1`\n")
+    g2 = _write(tmp_path, "g2.md", "## Nodes\n\nf\nin: int n; int k = 0\nout: int r\nmodule: m.py\nexamples: (T) n `5` → r `99`\n")
+    t = _write(tmp_path, "t.json", json.dumps({"f": [{"in": {"n": 5}, "out": 99}]}))
+    args = ["--graph", str(g1), "--graph", str(g2), "--trace", f"T={t}", "--out", str(tmp_path / "c16.md")]
+    assert ce.main(args + ["--layered"]) == 0
+    assert "1 nodes replaced by a later graph: f" in capsys.readouterr().out
+    assert ce.main(args) == 1
+    assert "conflicts ['f']" in capsys.readouterr().out
+
+
+def test_an_offer_of_a_name_that_two_modules_share_reads_the_calls_of_both(tmp_path):
+    """Re-review R1: the recorder keeps a shared name as `module:name`, and an offer names it bare (an author
+    never qualifies a name); the offer looked up the bare name, found nothing, and was always drift."""
+    entities = cw.parse_entity_blocks('## Entities\n\n[Interface: KeyBar]\noffers: (T1, S1) "q" → on_key\n')
+    trace = {"_steps": ["S1", "S2"], "app/views/home.py:on_key": [{"step": "S1", "root": "harness"}],
+             "app/views/variants.py:on_key": [{"step": "S2", "root": "harness"}]}
+    assert [r[4] for r in ce.check_offers(entities, {"T1": trace})] == ["ok"]
+    trace["app/views/home.py:on_key"][0]["step"] = "S2"
+    assert [r[4] for r in ce.check_offers(entities, {"T1": trace})] == ["drift"]
+    # a full key (`expect none` of one node) still reads only its own calls
+    assert ce.expect_none(trace, "app/views/home.py:on_key", {"step": "S1", "root": None}) == ("ok", "")

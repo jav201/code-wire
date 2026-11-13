@@ -1,7 +1,9 @@
 """Code-Wire recorder: a read-only pytest plugin that records the literal I/O of every graph node
 while real tests run, so `codewire_examples.py` can check the graph's `ejemplos:` against it.
 
-Generic: the nodes come from the graph files (name + `module:`), not from a hand-written list.
+Generic: the nodes come from the graph files (name + `module:`), not from a hand-written list, read as
+successive increments (`--layered` of the extractor). A node is recorded under its name (`module:name`
+when two modules have a node of that name).
     CW_GRAPHS  graph .md files, separated by os.pathsep
     CW_OUT     trace JSON to write (no file when it is not set)
     CW_MAX     calls kept per node (default 3)
@@ -137,10 +139,12 @@ def wrap(node, fn):
     # Q28: a `modify:` on an input (`mem_map`, `document.entries[].status`) is recorded after the call
     modified = [m.split(".")[0].split("[")[0] for m in node["modify"] if m and not m.startswith("[")]
 
+    name = node.get("key", node["name"])
+
     @functools.wraps(fn)
     def w(*a, **k):
-        ev = events.begin(node["name"], sys._getframe(1), getattr(fn, "__code__", None), a + tuple(k.values()))
-        key = (ev["root"], node["name"])
+        ev = events.begin(name, sys._getframe(1), getattr(fn, "__code__", None), a + tuple(k.values()))
+        key = (ev["root"], name)
         if KEPT.get(key, 0) >= MAX_EVENTS:
             try:
                 return fn(*a, **k)
@@ -155,7 +159,7 @@ def wrap(node, fn):
         call = {"test": os.environ.get("PYTEST_CURRENT_TEST", "").split(" ")[0], "depth": DEPTH[0],
                 "root": ev["root"], "parent": ev["parent"],
                 "in": {n: lit(v) for n, v in args.items() if n != "self"}}
-        calls = TRACE.setdefault(node["name"], [])
+        calls = TRACE.setdefault(name, [])
         if sum(1 for c in calls if c.get("root") == ev["root"]) < MAX_CALLS:
             calls.append(call)
         DEPTH[0] += 1
@@ -191,13 +195,22 @@ def wrap(node, fn):
 
 
 def resolve(node):
-    """(owner, attr, function) for a node: `module:` gives the module, the name gives the attribute."""
+    """(owner, attr, function) for a node: `module:` gives the module, the name gives the attribute; a real
+    attribute first, then the name after a module prefix."""
     mod = importlib.import_module(node["module"][:-3].replace("/", "."))
-    parts = node["name"].split(".")
-    owner = mod
-    for p in parts[:-1]:
-        owner = getattr(owner, p)
-    return owner, parts[-1], getattr(owner, parts[-1])
+
+    def walk(name):
+        owner, parts = mod, name.split(".")
+        for p in parts[:-1]:
+            owner = getattr(owner, p)
+        return owner, parts[-1], getattr(owner, parts[-1])
+    try:
+        return walk(node["name"])
+    except AttributeError:
+        short = cw.drop_module_prefix(node["name"], node["module"])
+        if short is None:
+            raise
+        return walk(short)
 
 
 def pytest_configure(config):
@@ -211,13 +224,13 @@ def install(graph_paths, adapters=()):
     for name in adapters:
         importlib.import_module(f"cw_{name}").install()
     texts = [Path(p).read_text(encoding="utf-8") for p in graph_paths]
-    nodes, _, _, _ = cw.load_graphs(texts)
+    nodes, _, _, _ = cw.load_graphs(texts, layered=True)
     originals, skipped = {}, []
     for node in nodes:
         try:
             owner, attr, fn = resolve(node)
         except (TypeError, ImportError, AttributeError):  # no `module:`, no module file, or no def yet
-            skipped.append(node["name"])
+            skipped.append(node["key"])
             continue
         w = wrap(node, fn)
         setattr(owner, attr, w)

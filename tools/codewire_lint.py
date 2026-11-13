@@ -25,8 +25,8 @@ def main(argv=None):
         a.json.write_text(json.dumps(parse, indent=2, ensure_ascii=False), encoding="utf-8")
     for w in parse["unread"]:
         print(f"{a.graph}:{w['line']}: not read: {w['text']}")
-    print(f"nodes={len(parse['nodes'])} entities={len(parse['entities'])} edges={len(parse['edges'])} "
-          f"findings={len(parse['findings'])} not read={len(parse['unread'])}")
+    print(f"not read={len(parse['unread'])} nodes={len(parse['nodes'])} entities={len(parse['entities'])} "
+          f"edges={len(parse['edges'])}")
     if not parse["nodes"]:
         print("no node: the text has no block in `## Nodes` that the parser can read")
     return 1 if parse["unread"] or not parse["nodes"] else 0

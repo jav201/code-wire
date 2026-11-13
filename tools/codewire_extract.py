@@ -1,7 +1,8 @@
 """Code-Wire extractor: compare the `# node:` marks in Python code with a Code-Wire graph (.md, format B).
 
-Usage: python codewire_extract.py --repo <path> --graph <graph.md> [--path <folder>] --out <dir>
+Usage: python codewire_extract.py --repo <path> --graph <graph.md> [--graph …] [--layered] [--path <folder>] --out <dir>
 
+A node is its `module:` and its name: two nodes with one name in two modules are two nodes.
 For each node it compares the mark, the def and the contract: the inputs with their types and default
 values, the output type and the module. It also lists the real calls between marked nodes, lifted through
 unmarked helpers, so a reader sees who calls whom. `--path` keeps only the marks in the files of one slice.
@@ -14,6 +15,7 @@ import ast
 import json
 import re
 import sys
+from collections import Counter
 from pathlib import Path
 
 MARK_RE = re.compile(r"^\s*#\s*node:\s*(\S+)\s*(?:\[([^\]]*)\])?")
@@ -63,6 +65,16 @@ def defs_with_qualnames(tree):
                 yield prefix + child.name, child, cls
                 yield from walk(child, prefix + child.name + ".<locals>.", None)
     yield from walk(tree, "", None)
+
+
+def drop_module_prefix(name, module):
+    """`home.draw` in `app/views/home.py` -> `draw`: the first segment is the stem of the file or the name
+    of a parent folder, added by the author to keep node names unique. None when it is not such a prefix."""
+    head, dot, rest = name.partition(".")
+    parts = Path(module or "").parts
+    if dot and parts and head in (Path(parts[-1]).stem, *parts[:-1]):
+        return rest
+    return None
 
 
 def signature(fn):
@@ -155,6 +167,11 @@ def nested_optional(t):
     return t
 
 
+def in_items(text):
+    """The items of an `in:` value; `(none)`, `none` (any case) and an empty value mean no input."""
+    return [] if text.strip().lower() in ("(none)", "none") else split_top(text, ";")
+
+
 def parse_decl(item):
     """`type name [= default]`, `(Callable) A->B name`, `Class self` -> {kind, type, name, default}."""
     item = item.strip()
@@ -213,7 +230,7 @@ def parse_graph(md_text):
         nodes.append({
             "name": lines[0].strip(),
             "reqs": reqs,
-            "in": [parse_decl(i) for i in split_top(fields.get("in", ""), ";")],
+            "in": [parse_decl(i) for i in in_items(fields.get("in", ""))],
             "out": parse_out(fields.get("out", "")),
             "module": fields.get("module") or None,
             "examples": examples,
@@ -232,25 +249,42 @@ def parse_entities(md_text):
     return [l.strip() for l in section(md_text, "Entities").splitlines() if l.strip().startswith("[")]
 
 
-def load_graphs(texts):
-    """Merge several graph files that share one repo: nodes by name (the first wins; the same name with
-    another contract or another `req:` is a conflict), edges and entities concatenated."""
-    nodes, edges, entities, conflicts = {}, [], [], []
-    for md in texts:
+def with_keys(nodes):
+    """Give each node its `key`, its name in a report and a recording: the bare name, or `module:name`
+    only when another node has the same name in another module."""
+    count = Counter(n["name"] for n in nodes)
+    for n in nodes:
+        n["key"] = n["name"] if count[n["name"]] == 1 or not n.get("module") else f"{n['module']}:{n['name']}"
+    return nodes
+
+
+def load_graphs(texts, layered=False, replaced=None):
+    """Merge several graph files that share one repo. A node is its module and its name; the same node
+    with another contract or another `req:` is a conflict (the first wins). `layered`: the files are
+    successive increments, so a node replaces the one of its module and name from an EARLIER file; its
+    key is added once to the list `replaced`. Edges and entities are concatenated."""
+    nodes, origin, edges, entities, clash, swap = {}, {}, [], [], [], []
+    for i, md in enumerate(texts):
         for n in parse_graph(md):
-            if n["name"] in nodes:
-                a = nodes[n["name"]]
-                if (a["in"], a["out"]["type"], a["module"], a["reqs"]) != (n["in"], n["out"]["type"], n["module"], n["reqs"]):
-                    conflicts.append(n["name"])
-                else:  # the same node in two flows: each brings its own thread
-                    a["examples"] += [e for e in n["examples"] if e not in a["examples"]]
+            key = (n["module"], n["name"])
+            a = nodes.get(key)
+            if a is None:
+                nodes[key], origin[key] = n, i
+            elif (a["in"], a["out"]["type"], a["reqs"]) == (n["in"], n["out"]["type"], n["reqs"]):
+                a["examples"] += [e for e in n["examples"] if e not in a["examples"]]  # one node in two flows
+            elif layered and origin[key] < i:
+                nodes[key], origin[key] = n, i
+                swap += [key] if key not in swap else []
             else:
-                nodes[n["name"]] = n
+                clash.append(key)
         entities += parse_entities(md)
-    names = list(nodes)
+    with_keys(list(nodes.values()))
+    if replaced is not None:
+        replaced += [nodes[k]["key"] for k in swap]
+    names = list(dict.fromkeys(name for _, name in nodes))
     for md in texts:
         edges += parse_edges(md, names)
-    return list(nodes.values()), edges, list(dict.fromkeys(entities)), conflicts
+    return list(nodes.values()), edges, list(dict.fromkeys(entities)), [nodes[k]["key"] for k in clash]
 
 
 def parse_edges(md_text, node_names):
@@ -413,7 +447,7 @@ def unread(md_text):
             miss(i, f"node `{first}` has no `in:` and no `out:`")
             continue
         value = lambda key: next((l.split(":", 1)[1].strip() for _, l in block if l.startswith(key + ":")), "")  # noqa: E731
-        names = {parse_decl(x)["name"] for x in split_top(value("in"), ";") if x.strip()}
+        names = {parse_decl(x)["name"] for x in in_items(value("in")) if x.strip()}
         names |= set(parse_out(value("out"))["names"]) | {"out"}
         for j, line in block[1:]:
             if line.startswith("volatile:"):   # the recorder masks nothing for such an item
@@ -563,7 +597,9 @@ def lift_calls(parsed, marks):
     (up to MAX_LIFT_DEPTH), a marked callee Y yields the lifted edge X -> Y with its call site.
     Returns (edges {(X, Y): [sites]}, top_level_sites {Y: [sites]}, ambiguous_calls)."""
     defs, top_funcs, classes = index_defs(parsed)
-    marked = {f"{m['file']}::{m['def']['qualname']}": m["name"] for m in marks if m["def"]}
+    files_of = Counter(name for _, name in {(m["file"], m["name"]) for m in marks if m["def"]})
+    marked = {f"{m['file']}::{m['def']['qualname']}": m["name"] if files_of[m["name"]] == 1 else f"{m['file']}:{m['name']}"
+              for m in marks if m["def"]}
     marked_methods = {}
     for did in marked:
         qual = did.split("::", 1)[1]
@@ -655,7 +691,11 @@ def norm_default(d):
     return None if d is None else d.replace(" ", "").replace("'", '"')
 
 
-def diff(marks, graph_nodes, lifted, top_level, conflicts=()):
+def show_default(d):
+    return "no default" if d is None else f"default `{d}`"
+
+
+def diff(marks, graph_nodes, lifted, top_level, conflicts=(), replaced=()):
     """The differences between the marks, the defs and the graph contracts, and the list of the real calls."""
     findings = []
 
@@ -665,28 +705,40 @@ def diff(marks, graph_nodes, lifted, top_level, conflicts=()):
     for name in conflicts:
         add("graph_node_conflict", name, f"`{name}` is declared in two graph files with another contract or `req:`")
 
-    by_mark = {}
+    if replaced:
+        add("info_nodes_replaced", "graphs", f"{len(replaced)} replaced by a later graph: " + ", ".join(f"`{n}`" for n in replaced))
+
+    by_mark = {}   # (file, name) -> the first mark
     for m in marks:
         where = f"{m['file']}:{m['line']}"
-        if m["name"] in by_mark:
-            add("duplicate_mark", where, f"`{m['name']}` also marked at {by_mark[m['name']]['file']}:{by_mark[m['name']]['line']}")
-        by_mark.setdefault(m["name"], m)
+        first = by_mark.setdefault((m["file"], m["name"]), m)
+        if first is not m:
+            add("duplicate_mark", where, f"`{m['name']}` also marked at {first['file']}:{first['line']}")
         if m["def"] is None:
             add("dangling_mark", where, f"`{m['name']}` is not directly above a def")
-        elif m["def"]["qualname"] != m["name"]:
+        elif m["def"]["qualname"] not in (m["name"], drop_module_prefix(m["name"], m["file"])):
             add("mark_name_ne_qualname", where, f"mark `{m['name']}` vs def `{m['def']['qualname']}`")
 
-    nodes = {n["name"]: n for n in graph_nodes}
-    for m in marks:
-        if m["name"] not in nodes:
-            add("mark_without_graph_node", f"{m['file']}:{m['line']}", f"`{m['name']}`")
+    claimed, bound = {(n["module"], n["name"]) for n in graph_nodes}, set()
+
+    def mark_of(node):
+        """The mark in the node's module; else a mark of its name that no node claims (moved, or no `module:`)."""
+        key = (node["module"], node["name"])
+        if key not in by_mark:
+            key = next((k for k in by_mark if k[1] == node["name"] and k not in claimed and k not in bound), None)
+        if key is None:
+            return None
+        bound.add(key)
+        return by_mark[key]
 
     for node in graph_nodes:
         if not node.get("examples"):
             add("graph_examples_missing", node["module"] or "?", f"`{node['name']}` has no `examples:` line")
-        m = by_mark.get(node["name"])
+        m = mark_of(node)
         if m is None:
-            add("graph_node_without_mark", node["module"] or "?", f"`{node['name']}`")
+            moved = [n["module"] for n in graph_nodes if n["name"] == node["name"] and n is not node and n["module"]]
+            add("graph_node_without_mark", node["module"] or "?", f"`{node['name']}`"
+                + (f" (a node of this name is also in `{'`, `'.join(moved)}`: moved?)" if moved else ""))
             continue
         where = f"{m['file']}:{m['line']}"
         d = m["def"]
@@ -717,7 +769,7 @@ def diff(marks, graph_nodes, lifted, top_level, conflicts=()):
                 elif level == "loose":
                     add("info_type_loose", where, f"`{name}`: graph `{gp['type']}` vs code `{cp['type']}`")
             if norm_default(gp["default"]) != norm_default(cp["default"]):
-                add("default_mismatch", where, f"`{name}`: graph default `{gp['default']}` vs code `{cp['default']}`")
+                add("default_mismatch", where, f"`{name}`: graph {show_default(gp['default'])} vs code {show_default(cp['default'])}")
 
         g_out, c_out = node["out"]["type"], d["returns"]
         if node["name"].endswith(".__init__"):
@@ -732,6 +784,10 @@ def diff(marks, graph_nodes, lifted, top_level, conflicts=()):
                 add("output_type_mismatch", where, f"graph `{g_out}` vs code `{c_out}`")
             elif level == "loose":
                 add("info_type_loose", where, f"output: graph `{g_out}` vs code `{c_out}`")
+
+    for key, m in by_mark.items():
+        if key not in bound:
+            add("mark_without_graph_node", f"{m['file']}:{m['line']}", f"`{m['name']}`")
 
     calls = [{"caller": x, "callee": y, "sites": sites} for (x, y), sites in sorted(lifted.items())]
     return findings, calls
@@ -754,6 +810,7 @@ KIND_TITLES = {
     "default_mismatch": "Default value mismatch",
     "output_type_mismatch": "Output type mismatch",
     "output_untyped_in_code": "Return unannotated in code (cannot compare)",
+    "info_nodes_replaced": "Info: nodes replaced by a later graph (`--layered`)",
     "info_type_loose": "Info: graph names the bare container only (loose match)",
 }
 
@@ -795,6 +852,8 @@ def main(argv=None):
     ap.add_argument("--repo", required=True, type=Path)
     ap.add_argument("--graph", required=True, type=Path, action="append",
                     help="graph file; repeat for several graphs over the same repo")
+    ap.add_argument("--layered", action="store_true",
+                    help="the graphs are successive increments: a node replaces the one of its module and name from an earlier graph")
     ap.add_argument("--path", action="append", default=[],
                     help="keep only the marks in this folder or file of the repo; repeat for more")
     ap.add_argument("--out", required=True, type=Path)
@@ -804,9 +863,10 @@ def main(argv=None):
     if args.path:   # one slice: the marks of other slices are not findings of this one (M-13)
         keep = [p.replace("\\", "/").strip("/") for p in args.path]
         marks = [m for m in marks if any(m["file"] == k or m["file"].startswith(k + "/") for k in keep)]
-    graph_nodes, _, _, conflicts = load_graphs([g.read_text(encoding="utf-8") for g in args.graph])
+    replaced = []
+    graph_nodes, _, _, conflicts = load_graphs([g.read_text(encoding="utf-8") for g in args.graph], args.layered, replaced)
     lifted, top_level, ambiguous = lift_calls(parsed, marks)
-    findings, calls = diff(marks, graph_nodes, lifted, top_level, conflicts)
+    findings, calls = diff(marks, graph_nodes, lifted, top_level, conflicts, replaced)
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "extract.json").write_text(json.dumps(
         {"marks": marks, "graph_nodes": graph_nodes, "calls": calls, "top_level_sites": top_level,
@@ -815,7 +875,7 @@ def main(argv=None):
         render_report(findings, marks, graph_nodes, calls, top_level, ambiguous, failed), encoding="utf-8")
     print(f"marks={len(marks)} graph_nodes={len(graph_nodes)} calls={len(calls)} "
           f"findings={len(findings)} parse_failures={len(failed)}")
-    # "done = no drift": a drift or a file that does not parse exits 1, so a green run means it
+    # a drift or a file that does not parse exits 1; the report is a list for the person who integrates
     return 1 if failed or any(not f["kind"].startswith("info_") for f in findings) else 0
 
 
