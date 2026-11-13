@@ -42,7 +42,7 @@ key         = "req" | "in" | "out" | "func" | "module" | "examples"
 | Field | Value |
 |---|---|
 | `req:` | the requirement ids, separated by `,`; `to trace` when there is none yet |
-| `in:` | each parameter as `type name`, separated by `;`; also the ones with a default (`str path = "logs/a.txt"`). Empty for no parameter. `X?` is an optional type; `(Callable) A->B name` is a function as input; `Class self` only when the node uses data of its object that no entity names |
+| `in:` | each parameter as `type name`, separated by `;`; also the ones with a default (`str path = "logs/a.txt"`). Empty or `(none)` for no parameter. `X?` is an optional type; `(Callable) A->B name` is a function as input; `Class self` only when the node uses data of its object that no entity names |
 | `out:` | one output, `type name`; `tuple(A a, B b)` for more than one value; `None` when the node only changes state |
 | `func:` | what the node does, in one or two lines |
 | `module:` | the file, from the root of the repository |

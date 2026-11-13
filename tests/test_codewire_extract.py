@@ -338,3 +338,113 @@ def test_path_keeps_only_the_marks_of_one_slice(tmp_path):
         out = tmp_path / ("out" + str(len(extra)))
         cw.main(["--repo", str(tmp_path), "--graph", str(g), "--out", str(out), *extra])
         assert ("`stray`" in (out / "diff-report.md").read_text(encoding="utf-8")) is want
+
+
+# ---------- v3.2: the tools read what authors write ----------
+
+def _module_prefix_repo(tmp_path, code, rel="app/views/home.py"):
+    f = tmp_path / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text(code, encoding="utf-8")
+    return rel
+
+
+def _node(name, module, typ="int"):
+    return f"{name}\nreq: R-1\nin: {typ} n\nout: int r\nmodule: {module}\nexamples: (T) n `1` → `1`\n"
+
+
+def test_a_module_prefix_on_a_node_name_binds_to_the_def_and_is_not_drift(tmp_path):
+    """Seven view modules each have `draw`; node names are unique, so the author writes `home.draw`
+    with `module: app/views/home.py`. The tools must read it as the def `draw` of that file."""
+    rel = _module_prefix_repo(tmp_path, "# node: home.draw  [R-1]\ndef draw(n: int) -> int:\n    return n\n")
+    parsed, _ = cw.parse_files(tmp_path)
+    graph = "## Nodes\n\n" + _node("home.draw", rel)
+    findings, _ = cw.diff(cw.extract_marks(parsed), cw.parse_graph(graph), {}, {})
+    assert findings == []
+
+
+def test_a_prefix_that_is_not_the_stem_or_a_folder_of_the_module_is_still_drift(tmp_path):
+    rel = _module_prefix_repo(tmp_path, "# node: other.draw  [R-1]\ndef draw(n: int) -> int:\n    return n\n")
+    parsed, _ = cw.parse_files(tmp_path)
+    findings, _ = cw.diff(cw.extract_marks(parsed), cw.parse_graph("## Nodes\n\n" + _node("other.draw", rel)), {}, {})
+    assert _has(findings, "mark_name_ne_qualname", "`draw`")
+
+
+def test_a_parent_folder_name_is_also_a_module_prefix():
+    assert cw.drop_module_prefix("lineage.crumbs", "src/app/views/lineage/view.py") == "crumbs"
+    assert cw.drop_module_prefix("view.crumbs", "src/app/views/lineage/view.py") == "crumbs"
+    assert cw.drop_module_prefix("crumbs", "src/app/views/lineage/view.py") is None
+
+
+def test_the_marks_tool_writes_the_full_name_above_the_short_def_and_a_real_class_wins(tmp_path, monkeypatch):
+    import codewire_marks as cm
+    monkeypatch.setattr(cm, "git", lambda *a, **k: "")   # a throwaway folder, not a worktree
+    code = ("def draw(n: int) -> int:\n    return n\n\n"
+            "class home:\n    def draw(self, n: int) -> int:\n        return n\n")
+    rel = _module_prefix_repo(tmp_path, code)
+    placed, missing = cm.emit(tmp_path, cw.parse_graph("## Nodes\n\n" + _node("home.draw", rel)))
+    text = (tmp_path / rel).read_text(encoding="utf-8").splitlines()
+    assert missing == [] and placed[0]["line"] == 5
+    assert text[4].strip().startswith("# node: home.draw ") and text[0].startswith("def draw")   # the class method, not the function
+    rel2 = _module_prefix_repo(tmp_path, "def draw(n: int) -> int:\n    return n\n", "app/views/home2.py")
+    placed, missing = cm.emit(tmp_path, cw.parse_graph("## Nodes\n\n" + _node("home2.draw", rel2)))
+    assert missing == [] and (tmp_path / rel2).read_text(encoding="utf-8").splitlines()[0].startswith("# node: home2.draw ")
+
+
+def test_in_none_means_no_inputs_and_is_not_missing_in_code(tmp_path):
+    """8 real findings: "graph input `(none)` not a parameter of `view_lines`"."""
+    (tmp_path / "m.py").write_text("# node: view_lines  [R-1]\ndef view_lines() -> list[str]:\n    return []\n", encoding="utf-8")
+    parsed, _ = cw.parse_files(tmp_path)
+    graph = "## Nodes\n\nview_lines\nreq: R-1\nin: (none)\nout: list[str] lines\nmodule: m.py\nexamples: (T) → `[]`\n"
+    findings, _ = cw.diff(cw.extract_marks(parsed), cw.parse_graph(graph), {}, {})
+    assert findings == []
+
+
+LAYER_1 = "## Nodes\n\nview_lines\nreq: R-1\nin: int n\nout: int r\nmodule: m.py\nexamples: (T) n `1` → `1`\n"
+LAYER_2 = LAYER_1.replace("in: int n", "in: int n; int width = 80")
+
+
+def test_layered_graphs_replace_the_earlier_node_and_count_it():
+    replaced = []
+    nodes, _, _, conflicts = cw.load_graphs([LAYER_1, LAYER_2], layered=True, replaced=replaced)
+    assert conflicts == [] and replaced == ["view_lines"]
+    assert [p["name"] for p in nodes[0]["in"]] == ["n", "width"]   # the later graph wins
+
+
+def test_without_layered_two_graphs_that_disagree_are_still_a_conflict():
+    replaced = []
+    nodes, _, _, conflicts = cw.load_graphs([LAYER_1, LAYER_2], replaced=replaced)
+    assert conflicts == ["view_lines"] and replaced == []
+    assert [p["name"] for p in nodes[0]["in"]] == ["n"]            # the first wins, as before
+
+
+def test_layered_flag_on_the_extractor_reports_replaced_nodes_as_info_and_exits_0(tmp_path):
+    (tmp_path / "m.py").write_text("# node: view_lines  [R-1]\ndef view_lines(n: int, width: int = 80) -> int:\n    return n\n", encoding="utf-8")
+    for i, text in enumerate((LAYER_1, LAYER_2), 1):
+        (tmp_path / f"g{i}.md").write_text(text, encoding="utf-8")
+    args = ["--repo", str(tmp_path), "--graph", str(tmp_path / "g1.md"), "--graph", str(tmp_path / "g2.md")]
+    assert cw.main(args + ["--layered", "--out", str(tmp_path / "a")]) == 0
+    report = (tmp_path / "a" / "diff-report.md").read_text(encoding="utf-8")
+    assert "1 replaced by a later graph" in report and "Same node with another contract" not in report
+    assert cw.main(args + ["--out", str(tmp_path / "b")]) == 1
+
+
+def test_layered_flag_on_the_marks_tool(tmp_path, capsys, monkeypatch):
+    import codewire_marks as cm
+    monkeypatch.setattr(cm, "git", lambda *a, **k: "")
+    (tmp_path / "m.py").write_text("def view_lines(n: int, width: int = 80) -> int:\n    return n\n", encoding="utf-8")
+    for i, text in enumerate((LAYER_1, LAYER_2), 1):
+        (tmp_path / f"g{i}.md").write_text(text, encoding="utf-8")
+    cm.main(["--repo", str(tmp_path), "--graph", str(tmp_path / "g1.md"), "--graph", str(tmp_path / "g2.md"), "--layered"])
+    out = capsys.readouterr().out
+    assert "1 marks written" in out and "1 nodes replaced" in out and "conflicts" not in out
+
+
+def test_default_mismatch_says_no_default_for_the_side_that_has_none(tmp_path):
+    """The graph line had no default and the code had `= None`; the message printed `None` for both."""
+    (tmp_path / "m.py").write_text("# node: f  [R-1]\ndef f(x_end: int | None = None) -> int:\n    return 1\n", encoding="utf-8")
+    parsed, _ = cw.parse_files(tmp_path)
+    graph = "## Nodes\n\nf\nreq: R-1\nin: int? x_end\nout: int r\nmodule: m.py\nexamples: (T) → `1`\n"
+    findings, _ = cw.diff(cw.extract_marks(parsed), cw.parse_graph(graph), {}, {})
+    msgs = [f["msg"] for f in findings if f["kind"] == "default_mismatch"]
+    assert msgs == ["`x_end`: graph no default vs code default `None`"]

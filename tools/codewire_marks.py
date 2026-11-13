@@ -72,6 +72,8 @@ def emit(repo, nodes):
         inserts = []
         for n in file_nodes:
             fn = defs.get(n["name"])
+            if fn is None and (short := cw.drop_module_prefix(n["name"], rel)):
+                fn = defs.get(short)
             if fn is None:
                 missing.append({"name": n["name"], "module": rel, "why": "no def"})
                 continue
@@ -92,13 +94,17 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--repo", required=True, type=Path)
     ap.add_argument("--graph", required=True, type=Path, action="append")
+    ap.add_argument("--layered", action="store_true",
+                    help="the graphs are successive increments: a later node replaces the earlier one of its name")
     ap.add_argument("--out", type=Path)
     a = ap.parse_args(argv)
-    nodes, _, _, conflicts = cw.load_graphs([g.read_text(encoding="utf-8") for g in a.graph])
+    replaced = []
+    nodes, _, _, conflicts = cw.load_graphs([g.read_text(encoding="utf-8") for g in a.graph], a.layered, replaced)
     placed, missing = emit(a.repo, nodes)
     if a.out:
-        a.out.write_text(json.dumps({"placed": placed, "missing": missing, "conflicts": conflicts}, indent=1), encoding="utf-8")
-    print(f"{len(placed)} marks written, {len(missing)} nodes without code" + (f", conflicts {conflicts}" if conflicts else ""))
+        a.out.write_text(json.dumps({"placed": placed, "missing": missing, "conflicts": conflicts, "replaced": replaced}, indent=1), encoding="utf-8")
+    print(f"{len(placed)} marks written, {len(missing)} nodes without code" + (f", conflicts {conflicts}" if conflicts else "")
+          + (f", {len(replaced)} nodes replaced by a later graph" if replaced else ""))
     for m in missing:
         print(f"  missing: {m['name']} ({m['module']}): {m['why']}")
     return 0

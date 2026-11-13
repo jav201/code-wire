@@ -65,6 +65,16 @@ def defs_with_qualnames(tree):
     yield from walk(tree, "", None)
 
 
+def drop_module_prefix(name, module):
+    """`home.draw` in `app/views/home.py` -> `draw`: the first segment is the stem of the file or the name
+    of a parent folder, added by the author to keep node names unique. None when it is not such a prefix."""
+    head, dot, rest = name.partition(".")
+    parts = Path(module or "").parts
+    if dot and parts and head in (Path(parts[-1]).stem, *parts[:-1]):
+        return rest
+    return None
+
+
 def signature(fn):
     a = fn.args
     positional = a.posonlyargs + a.args
@@ -155,6 +165,11 @@ def nested_optional(t):
     return t
 
 
+def in_items(text):
+    """The items of an `in:` value; `(none)` and an empty value both mean no input."""
+    return [] if text.strip() == "(none)" else split_top(text, ";")
+
+
 def parse_decl(item):
     """`type name [= default]`, `(Callable) A->B name`, `Class self` -> {kind, type, name, default}."""
     item = item.strip()
@@ -213,7 +228,7 @@ def parse_graph(md_text):
         nodes.append({
             "name": lines[0].strip(),
             "reqs": reqs,
-            "in": [parse_decl(i) for i in split_top(fields.get("in", ""), ";")],
+            "in": [parse_decl(i) for i in in_items(fields.get("in", ""))],
             "out": parse_out(fields.get("out", "")),
             "module": fields.get("module") or None,
             "examples": examples,
@@ -232,16 +247,23 @@ def parse_entities(md_text):
     return [l.strip() for l in section(md_text, "Entities").splitlines() if l.strip().startswith("[")]
 
 
-def load_graphs(texts):
+def load_graphs(texts, layered=False, replaced=None):
     """Merge several graph files that share one repo: nodes by name (the first wins; the same name with
-    another contract or another `req:` is a conflict), edges and entities concatenated."""
+    another contract or another `req:` is a conflict), edges and entities concatenated. `layered`: the
+    files are successive increments, so a later node replaces the earlier one of its name (no conflict);
+    the names replaced are appended to the list `replaced`."""
     nodes, edges, entities, conflicts = {}, [], [], []
     for md in texts:
         for n in parse_graph(md):
             if n["name"] in nodes:
                 a = nodes[n["name"]]
                 if (a["in"], a["out"]["type"], a["module"], a["reqs"]) != (n["in"], n["out"]["type"], n["module"], n["reqs"]):
-                    conflicts.append(n["name"])
+                    if layered:
+                        nodes[n["name"]] = n
+                        if replaced is not None:
+                            replaced.append(n["name"])
+                    else:
+                        conflicts.append(n["name"])
                 else:  # the same node in two flows: each brings its own thread
                     a["examples"] += [e for e in n["examples"] if e not in a["examples"]]
             else:
@@ -413,7 +435,7 @@ def unread(md_text):
             miss(i, f"node `{first}` has no `in:` and no `out:`")
             continue
         value = lambda key: next((l.split(":", 1)[1].strip() for _, l in block if l.startswith(key + ":")), "")  # noqa: E731
-        names = {parse_decl(x)["name"] for x in split_top(value("in"), ";") if x.strip()}
+        names = {parse_decl(x)["name"] for x in in_items(value("in")) if x.strip()}
         names |= set(parse_out(value("out"))["names"]) | {"out"}
         for j, line in block[1:]:
             if line.startswith("volatile:"):   # the recorder masks nothing for such an item
@@ -655,7 +677,11 @@ def norm_default(d):
     return None if d is None else d.replace(" ", "").replace("'", '"')
 
 
-def diff(marks, graph_nodes, lifted, top_level, conflicts=()):
+def show_default(d):
+    return "no default" if d is None else f"default `{d}`"
+
+
+def diff(marks, graph_nodes, lifted, top_level, conflicts=(), replaced=()):
     """The differences between the marks, the defs and the graph contracts, and the list of the real calls."""
     findings = []
 
@@ -665,6 +691,9 @@ def diff(marks, graph_nodes, lifted, top_level, conflicts=()):
     for name in conflicts:
         add("graph_node_conflict", name, f"`{name}` is declared in two graph files with another contract or `req:`")
 
+    if replaced:
+        add("info_nodes_replaced", "graphs", f"{len(replaced)} replaced by a later graph: " + ", ".join(f"`{n}`" for n in replaced))
+
     by_mark = {}
     for m in marks:
         where = f"{m['file']}:{m['line']}"
@@ -673,7 +702,7 @@ def diff(marks, graph_nodes, lifted, top_level, conflicts=()):
         by_mark.setdefault(m["name"], m)
         if m["def"] is None:
             add("dangling_mark", where, f"`{m['name']}` is not directly above a def")
-        elif m["def"]["qualname"] != m["name"]:
+        elif m["def"]["qualname"] not in (m["name"], drop_module_prefix(m["name"], m["file"])):
             add("mark_name_ne_qualname", where, f"mark `{m['name']}` vs def `{m['def']['qualname']}`")
 
     nodes = {n["name"]: n for n in graph_nodes}
@@ -717,7 +746,7 @@ def diff(marks, graph_nodes, lifted, top_level, conflicts=()):
                 elif level == "loose":
                     add("info_type_loose", where, f"`{name}`: graph `{gp['type']}` vs code `{cp['type']}`")
             if norm_default(gp["default"]) != norm_default(cp["default"]):
-                add("default_mismatch", where, f"`{name}`: graph default `{gp['default']}` vs code `{cp['default']}`")
+                add("default_mismatch", where, f"`{name}`: graph {show_default(gp['default'])} vs code {show_default(cp['default'])}")
 
         g_out, c_out = node["out"]["type"], d["returns"]
         if node["name"].endswith(".__init__"):
@@ -754,6 +783,7 @@ KIND_TITLES = {
     "default_mismatch": "Default value mismatch",
     "output_type_mismatch": "Output type mismatch",
     "output_untyped_in_code": "Return unannotated in code (cannot compare)",
+    "info_nodes_replaced": "Info: nodes replaced by a later graph (`--layered`)",
     "info_type_loose": "Info: graph names the bare container only (loose match)",
 }
 
@@ -795,6 +825,8 @@ def main(argv=None):
     ap.add_argument("--repo", required=True, type=Path)
     ap.add_argument("--graph", required=True, type=Path, action="append",
                     help="graph file; repeat for several graphs over the same repo")
+    ap.add_argument("--layered", action="store_true",
+                    help="the graphs are successive increments: a later node replaces the earlier one of its name")
     ap.add_argument("--path", action="append", default=[],
                     help="keep only the marks in this folder or file of the repo; repeat for more")
     ap.add_argument("--out", required=True, type=Path)
@@ -804,9 +836,10 @@ def main(argv=None):
     if args.path:   # one slice: the marks of other slices are not findings of this one (M-13)
         keep = [p.replace("\\", "/").strip("/") for p in args.path]
         marks = [m for m in marks if any(m["file"] == k or m["file"].startswith(k + "/") for k in keep)]
-    graph_nodes, _, _, conflicts = load_graphs([g.read_text(encoding="utf-8") for g in args.graph])
+    replaced = []
+    graph_nodes, _, _, conflicts = load_graphs([g.read_text(encoding="utf-8") for g in args.graph], args.layered, replaced)
     lifted, top_level, ambiguous = lift_calls(parsed, marks)
-    findings, calls = diff(marks, graph_nodes, lifted, top_level, conflicts)
+    findings, calls = diff(marks, graph_nodes, lifted, top_level, conflicts, replaced)
     args.out.mkdir(parents=True, exist_ok=True)
     (args.out / "extract.json").write_text(json.dumps(
         {"marks": marks, "graph_nodes": graph_nodes, "calls": calls, "top_level_sites": top_level,
